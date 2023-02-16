@@ -2,7 +2,7 @@
 I made this as a one-off project for my family, specifically for my uncle.
 
 It's a simple YouTube video downloader, made specifically for Microsoft Windows©,
-and for technically illiterate users.
+and for technologically illiterate users.
 
 # Further development and contributions
 I don't plan on developing this any further, unless I have a personal reason
@@ -31,7 +31,7 @@ You also probably want to include the licenses of imgui, gltf, cpp-json and yt-d
 ## yt-dlp.exe
 Obtain `yt-dlp.exe` from it's [github](https://github.com/yt-dlp/yt-dlp).
 I specifically tested it with release `2023.01.06`.
-The name must be exact.
+The executable name must be exact.
 
 ## font.ttf
 This isn't strictly necessary, but most of the text won't display properly without it.
