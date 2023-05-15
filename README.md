@@ -16,21 +16,7 @@ and work on this yourself, if you're inclined to do so.
 Currently tested and built using: 0.11.0-dev.3132+465272921
 
 # Using clangd for completions
-Clangd wants to know how the project was compiled to find headers and stuff,
-but [Zig isn't exactly best at providing that](https://github.com/ziglang/zig/issues/9323),
-so we will have to aid it a little in creating `compile_commands.json`, which you might notice
-is an invalid symlink in the project by default.
-
-## Creating compile_commands.json
-0. Run make.jl or perform the same steps as it performs.
-1. In build.zig, add the flags `-MJ build/compile_commands.json` to the `exe` build step
-(they're already there as comments, uncomment them).
-2. Run a build (it can fail), which will create the compile_commands.json file.
-3. Edit the compile_commands.json file to be a valid JSON array, by adding square brackets
-and deleting the comma at the end of the file
-4. Remove (or comment out) the flag from step #1, otherwise it will overwrite our edited
-compile_commands.json with invalid compile_commands.json.
-5. You should now have working clangd completions.
+You can create compile_commands.json while building using -Dgenerate-ccjson=true flag.
 
 # Compiling
 Compilation was made specifically for Linux, you may have to change it

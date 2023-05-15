@@ -1,12 +1,29 @@
 const std = @import("std");
+const Build = std.Build;
+const Step = std.build.Step;
 const fs = std.fs;
 const mem = std.mem;
 const compress = std.compress;
 const io = std.io;
 const math = std.math;
 
-pub fn build(b: *std.build.Builder) !void {
+const cpp_source_files = .{
+    "./src/main.cpp",
+    "./src/utils.cpp",
+    "./src/download.cpp",
+};
+
+const compiler_flags = .{
+    "-std=c++17",
+    "-Wall",
+    "-Wextra",
+    "-Wshadow",
+    // "-g",
+};
+
+pub fn build(b: *Build) !void {
     const doDownloadSources = b.option(bool, "fetch-sources", "Downloads and unpacks sources (Experimental)") orelse false;
+    const doGenerateCompileCommands = b.option(bool, "generate-ccjson", "Generate compile_commands.json") orelse false;
 
     if (doDownloadSources) {
         try downloadSources(b);
@@ -84,19 +101,28 @@ pub fn build(b: *std.build.Builder) !void {
 
     glfw.addCSourceFiles(glfw_sources.items, &.{});
 
+    var compilation_args = std.ArrayList([]const u8).init(b.allocator);
+    try compilation_args.appendSlice(&compiler_flags);
+
+    var cdstep: ?*CompilationDatabaseStep = step: {
+        if (doGenerateCompileCommands) {
+            var genstep = try CompilationDatabaseStep.initAlloc(b, &cpp_source_files, &compiler_flags);
+
+            try compilation_args.appendSlice(&.{ "-gen-cdb-fragment-path", genstep.cdb_dir_path });
+
+            b.default_step.dependOn(&genstep.step);
+            break :step genstep;
+        }
+
+        break :step null;
+    };
+
     const exe = b.addExecutable(.{
         .name = "YtDownloader",
         .target = target,
         .optimize = mode,
     });
-    exe.addCSourceFile("./src/main.cpp", &.{
-        "-std=c++17",
-        "-Wall",
-        "-Wextra",
-        "-Wshadow",
-        // "-g",
-        // "-MJ", "build/compile_commands.json",
-    });
+    exe.addCSourceFiles(&cpp_source_files, compilation_args.items);
     exe.addIncludePath("./build/imgui");
     exe.addIncludePath("./build/imgui/backends");
     exe.addIncludePath("./build/imgui/misc/cpp");
@@ -117,6 +143,11 @@ pub fn build(b: *std.build.Builder) !void {
     exe.linkLibrary(glfw);
 
     exe.subsystem = std.Target.SubSystem.Windows;
+
+    if (cdstep) |s| {
+        s.step.dependOn(&exe.step);
+    }
+
     const install_artifact = b.installArtifact(exe);
     _ = install_artifact;
 
@@ -211,3 +242,104 @@ fn downloadSources(b: *std.build.Builder) !void {
         try std.tar.pipeToFileSystem(output_dir, stream.reader(), .{ .strip_components = 1 });
     }
 }
+
+const CompilationDatabaseStep = struct {
+    step: Step,
+    cached: bool,
+    hash: [Build.Cache.hex_digest_len]u8,
+    cdb_dir_path: []u8,
+    manifest: Build.Cache.Manifest,
+
+    const Self = @This();
+
+    pub fn initAlloc(b: *Build, source_files: []const []const u8, comp_flags: []const []const u8) !*Self {
+        var manifest = b.cache.obtain();
+
+        manifest.hash.add(@as(u32, 0xad62deab));
+        try manifest.addListOfFiles(source_files);
+        manifest.hash.addListOfBytes(comp_flags);
+
+        const cached = try manifest.hit();
+        const hash = manifest.final();
+
+        const cache_path = b.cache_root.path orelse try fs.cwd().realpathAlloc(b.allocator, ".");
+
+        const cdb_dir_path = b.pathFromRoot(b.pathJoin(&.{ cache_path, "cdb", &hash }));
+
+        try b.cache_root.handle.makePath("cdb");
+
+        const allocated = try b.allocator.create(Self);
+        allocated.* = .{
+            .step = Step.init(.{
+                .id = .custom,
+                .owner = b,
+                .name = "Stitch together compile_commands.json",
+                .makeFn = make,
+            }),
+            .cached = cached,
+            .hash = hash,
+            .cdb_dir_path = cdb_dir_path,
+            .manifest = manifest,
+        };
+        return allocated;
+    }
+
+    fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+        _ = prog_node;
+
+        const self = @fieldParentPtr(Self, "step", step);
+        defer self.manifest.deinit();
+
+        const cfjson_path = step.owner.pathFromRoot("build/compile_commands.json");
+        const exists = exists: {
+            fs.accessAbsolute(cfjson_path, .{}) catch |err| {
+                if (err == error.FileNotFound) {
+                    break :exists false;
+                }
+                return err;
+            };
+            break :exists true;
+        };
+
+        step.result_cached = self.cached and exists;
+
+        if (step.result_cached) {
+            return;
+        }
+
+        const cfjson_file = try fs.createFileAbsolute(cfjson_path, .{});
+        defer cfjson_file.close();
+
+        const json_writer = cfjson_file.writer();
+        try json_writer.writeByte('[');
+
+        var cdb_dir = try fs.openIterableDirAbsolute(self.cdb_dir_path, .{});
+        defer cdb_dir.close();
+
+        var cdb_iter = cdb_dir.iterate();
+
+        var first = true;
+
+        while (try cdb_iter.next()) |entry| {
+            if (entry.kind != .File) {
+                return step.fail("Expected a file, found {s}", .{@tagName(entry.kind)});
+            }
+
+            if (first) {
+                first = false;
+            } else {
+                try json_writer.writeByte(',');
+            }
+
+            const file = try cdb_dir.dir.openFile(entry.name, .{});
+            const file_content = try file.readToEndAlloc(step.owner.allocator, math.maxInt(usize));
+            defer step.owner.allocator.free(file_content);
+
+            try json_writer.writeAll(file_content[0 .. file_content.len - 2]);
+        }
+
+        try json_writer.writeByte(']');
+
+        try self.manifest.writeManifest();
+    }
+};
