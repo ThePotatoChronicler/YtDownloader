@@ -1,9 +1,18 @@
 const std = @import("std");
+const fs = std.fs;
+const mem = std.mem;
+const compress = std.compress;
+const io = std.io;
+const math = std.math;
 
 pub fn build(b: *std.build.Builder) !void {
-    const target = std.zig.CrossTarget.parse(.{
-        .arch_os_abi = "x86_64-windows-gnu"
-    }) catch unreachable;
+    const doDownloadSources = b.option(bool, "fetch-sources", "Downloads and unpacks sources (Experimental)") orelse false;
+
+    if (doDownloadSources) {
+        try downloadSources(b);
+    }
+
+    const target = std.zig.CrossTarget.parse(.{ .arch_os_abi = "x86_64-windows-gnu" }) catch unreachable;
 
     // const mode = std.builtin.Mode.Debug;
     const mode = std.builtin.Mode.ReleaseFast;
@@ -60,7 +69,7 @@ pub fn build(b: *std.build.Builder) !void {
         "osmesa_context.c",
     };
 
-    var glfw_sources = std.ArrayList([] const u8).init(b.allocator);
+    var glfw_sources = std.ArrayList([]const u8).init(b.allocator);
     defer glfw_sources.deinit();
     for (glfw_pathless_sources) |source| {
         errdefer for (glfw_sources.items) |s| {
@@ -73,9 +82,7 @@ pub fn build(b: *std.build.Builder) !void {
         b.allocator.free(source);
     };
 
-    glfw.addCSourceFiles(glfw_sources.items, &.{
-
-    });
+    glfw.addCSourceFiles(glfw_sources.items, &.{});
 
     const exe = b.addExecutable(.{
         .name = "YtDownloader",
@@ -110,9 +117,10 @@ pub fn build(b: *std.build.Builder) !void {
     exe.linkLibrary(glfw);
 
     exe.subsystem = std.Target.SubSystem.Windows;
-    exe.install();
+    const install_artifact = b.installArtifact(exe);
+    _ = install_artifact;
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);
@@ -120,4 +128,86 @@ pub fn build(b: *std.build.Builder) !void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+}
+
+fn downloadSources(b: *std.build.Builder) !void {
+    const Download = struct {
+        name: []const u8,
+        url: []const u8,
+    };
+
+    const sources = [_]Download{
+        .{ .name = "imgui", .url = "http://github.com/ocornut/imgui/archive/refs/tags/v1.89.5.tar.gz" },
+        .{ .name = "glfw", .url = "http://github.com/glfw/glfw/archive/refs/tags/3.3.8.tar.gz" },
+        .{ .name = "cpp-json", .url = "http://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz" },
+    };
+
+    const build_dir_path = b.pathFromRoot("build");
+
+    if (fs.accessAbsolute(build_dir_path, .{})) |_| {
+        return;
+    } else |_| {
+        try fs.makeDirAbsolute(build_dir_path);
+    }
+    const build_dir = try fs.openDirAbsolute(build_dir_path, .{});
+
+    var client = std.http.Client{
+        .allocator = b.allocator,
+    };
+    defer client.deinit();
+
+    for (sources) |source| {
+        const output_dir_name = source.name;
+        const url = source.url;
+
+        const output_dir = build_dir.makeOpenPath(output_dir_name, .{}) catch |err| {
+            if (err == error.PathAlreadyExists) {
+                continue;
+            }
+
+            return err;
+        };
+
+        const uri = try std.Uri.parse(url);
+
+        var headers = std.http.Headers.init(b.allocator);
+        defer headers.deinit();
+
+        var request = try client.request(.GET, uri, headers, .{});
+        defer request.deinit();
+
+        try request.start();
+
+        std.debug.print("Downloading {s}\n", .{output_dir_name});
+
+        try request.wait();
+        var req_reader = request.reader();
+        const req_data = try req_reader.readAllAlloc(b.allocator, math.maxInt(usize));
+        defer b.allocator.free(req_data);
+
+        var req_data_stream = io.fixedBufferStream(req_data);
+
+        const decompressed_data = x: {
+            if (mem.endsWith(u8, url, ".gz")) {
+                var decompress = try compress.gzip.decompress(b.allocator, req_data_stream.reader());
+                defer decompress.deinit();
+                const data = try decompress.reader().readAllAlloc(b.allocator, std.math.maxInt(usize));
+                break :x data;
+            }
+
+            if (mem.endsWith(u8, url, ".xz")) {
+                var decompress = try compress.xz.decompress(b.allocator, req_data_stream.reader());
+                defer decompress.deinit();
+                const data = try decompress.reader().readAllAlloc(b.allocator, std.math.maxInt(usize));
+                break :x data;
+            }
+
+            return error.UnexpectedFilenameExtension;
+        };
+        defer b.allocator.free(decompressed_data);
+
+        var stream = io.fixedBufferStream(decompressed_data);
+
+        try std.tar.pipeToFileSystem(output_dir, stream.reader(), .{ .strip_components = 1 });
+    }
 }

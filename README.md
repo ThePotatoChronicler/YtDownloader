@@ -12,10 +12,13 @@ I will probably respond to simple issues or pull requests, but don't expect me
 to spend an extended amount of time on this, feel free to fork it in that case
 and work on this yourself, if you're inclined to do so.
 
+# Zig version
+Currently tested and built using: 0.11.0-dev.3132+465272921
+
 # Using clangd for completions
 Clangd wants to know how the project was compiled to find headers and stuff,
-but [Zig isn't exactly best at providing that](https://github.com/ziglang/zig/issues/9323), so
-we will have to aid it a little in creating `compile_commands.json`, which you might notice
+but [Zig isn't exactly best at providing that](https://github.com/ziglang/zig/issues/9323),
+so we will have to aid it a little in creating `compile_commands.json`, which you might notice
 is an invalid symlink in the project by default.
 
 ## Creating compile_commands.json
@@ -33,11 +36,17 @@ compile_commands.json with invalid compile_commands.json.
 Compilation was made specifically for Linux, you may have to change it
 to compile on different operating systems or architectures.
 
-Compilation happens in two steps, first you run the make.jl Julia script
-(this may require external Julia dependencies) to download sources of external
-dependencies, unpack them (using system tar), and create some directories.
+## Dependencies
+There are a few dependencies, there are three ways to download them, manually,
+or using the convenient download.sh posix script, which uses curl or wget
+to fetch the sources and tar to decompress them (GNU tar specifically, but
+it should work with most other implementations, with busybox being an outlier
+and possibly not working).
 
-After this, simply running `zig build` should be enough to build.
+The third way is built directly into zig build, but that way is unstable
+and may result in panics and a corrupted download, use with caution.
+
+After obtaining dependencies, simply running `zig build` should be enough to build.
 
 # Packaging
 The program needs a few things at runtime in the same directory as it's located,
