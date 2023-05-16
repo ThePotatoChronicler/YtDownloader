@@ -71,20 +71,21 @@ char* font_data;
 json config;
 std::list<DownloadTask*> downloads;
 std::string text_input_youtube_url;
-HINTERNET internet;
+UniqueWinHTTPINTERNET internet;
 
 bool waiting_for_savepath = false;
 std::future<std::optional<std::wstring>> filebrowser_for_savepath;
 
-
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-    internet = WinHttpOpen(NULL, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (internet == NULL) {
+    HINTERNET raw_internet = WinHttpOpen(NULL, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (raw_internet == NULL) {
         MessageBox(NULL, "Nelze načíst internetového klienta", NULL, MB_ICONERROR);
         return 1;
     }
+
+    internet = UniqueWinHTTPINTERNET(raw_internet);
 
     exec_path = get_exec_path();
     desktop_path = get_user_desktop_path();
@@ -179,7 +180,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         download->self_thread.join();
     }
 
-    WinHttpCloseHandle(internet);
     CoUninitialize();
 
     return 0;

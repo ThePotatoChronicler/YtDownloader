@@ -255,7 +255,7 @@ const CompilationDatabaseStep = struct {
     pub fn initAlloc(b: *Build, source_files: []const []const u8, comp_flags: []const []const u8) !*Self {
         var manifest = b.cache.obtain();
 
-        manifest.hash.add(@as(u32, 0xad62deab));
+        manifest.hash.add(@as(u32, 0xad82deab));
         try manifest.addListOfFiles(source_files);
         manifest.hash.addListOfBytes(comp_flags);
 

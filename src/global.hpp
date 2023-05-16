@@ -3,6 +3,7 @@
 #include <regex>
 #include <nlohmann/json.hpp>
 #include "download.hpp"
+#include "utils.hpp"
 #include <list>
 #include <winhttp.h>
 #include <future>
@@ -25,7 +26,7 @@ extern char* font_data;
 extern nlohmann::json config;
 extern std::list<DownloadTask*> downloads;
 extern std::string text_input_youtube_url;
-extern HINTERNET internet;
+extern UniqueWinHTTPINTERNET internet;
 
 extern bool waiting_for_savepath;
 extern std::future<std::optional<std::wstring>> filebrowser_for_savepath;

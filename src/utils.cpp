@@ -1,9 +1,14 @@
+#include <handleapi.h>
+#include <memory>
+#include <ostream>
 #include <string>
+#include <utility>
 #include <windows.h>
 #include <shlwapi.h>
 #include "utils.hpp"
 #include <locale>
 #include <codecvt>
+#include <winhttp.h>
 
 // https://stackoverflow.com/a/17387176
 //Returns the last Win32 error, in string format. Returns an empty string if there is no error.
@@ -51,4 +56,12 @@ std::string convert_utf16_to_utf8(const std::wstring &wstr) {
 
 std::wstring convert_utf8_to_utf16(const std::string &str) {
     return std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t>{}.from_bytes(str);
+}
+
+void UniqueWinHTTPINTERNETDeleter::operator()(HINTERNET handle) {
+    WinHttpCloseHandle(handle);
+}
+
+void UniqueWinHandleDeleter::operator()(HANDLE handle) {
+    CloseHandle(handle);
 }

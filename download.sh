@@ -27,6 +27,10 @@ download_wget() {
 }
 
 download() {
+  if [ -e "$dir/build/$1" ]; then
+    return 0
+  fi
+  
   if exists curl; then
     download_curl "$@"
     return

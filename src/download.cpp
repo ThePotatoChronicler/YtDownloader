@@ -3,6 +3,7 @@
 #include "download.hpp"
 #include "utils.hpp"
 #include <nlohmann/json.hpp>
+#include <thread>
 #include <winhttp.h>
 #include <fstream>
 #include "global.hpp"
@@ -31,12 +32,12 @@ void downloadVideoFromUrl(DownloadTask *task) {
     sattr.bInheritHandle = TRUE;
     sattr.lpSecurityDescriptor = NULL;
 
-    HANDLE readPipe;
-    HANDLE writePipe;
+    HANDLE raw_readPipe;
+    HANDLE raw_writePipe;
 
     BOOL created_pipe = ::CreatePipe(
-            &readPipe,
-            &writePipe,
+            &raw_readPipe,
+            &raw_writePipe,
             &sattr,
             std::powl(2, 16)
             );
@@ -47,10 +48,13 @@ void downloadVideoFromUrl(DownloadTask *task) {
         return;
     }
 
-    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+    UniqueWinHandle readPipe(raw_readPipe);
+    UniqueWinHandle writePipe(raw_writePipe);
+
+    SetHandleInformation(readPipe.get(), HANDLE_FLAG_INHERIT, 0);
 
     si.cb = sizeof(STARTUPINFO);
-    si.hStdOutput = writePipe;
+    si.hStdOutput = writePipe.get();
     si.dwFlags |= STARTF_USESTDHANDLES;
 
     BOOL created_process = ::CreateProcessW(
@@ -72,7 +76,10 @@ void downloadVideoFromUrl(DownloadTask *task) {
         return;
     }
 
-    CloseHandle(writePipe);
+    CloseHandle(writePipe.release());
+
+    UniqueWinHandle ytdlp_process(pi.hProcess);
+    UniqueWinHandle ytdlp_thread(pi.hThread);
 
     DWORD bytes_read = 0;
     std::string stdout_text;
@@ -81,16 +88,13 @@ void downloadVideoFromUrl(DownloadTask *task) {
     BOOL read_success;
 
     for (;;) {
-        read_success = ReadFile(readPipe, pipebuffer.data(), pipebuffer.size(), &bytes_read, NULL);
+        read_success = ReadFile(readPipe.get(), pipebuffer.data(), pipebuffer.size(), &bytes_read, NULL);
         if (!read_success) {
             DWORD error = ::GetLastError();
             if (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED || error == ERROR_INVALID_HANDLE) {
                 SetLastError(0);
                 break;
             } else {
-                CloseHandle(readPipe);
-                CloseHandle( pi.hProcess );
-                CloseHandle( pi.hThread );
                 task->failure_what = "Nepodařilo se komunikovat s ytdlp.exe (výstup): " + GetLastErrorAsString();
                 task->state = DownloadState::InicializationFailure;
                 return;
@@ -101,23 +105,16 @@ void downloadVideoFromUrl(DownloadTask *task) {
         stdout_text += std::string_view(pipebuffer.data(), bytes_read);
     }
 
-    // Close pipes
-    CloseHandle(readPipe);
-
     // Wait until child process exits.
-    WaitForSingleObject( pi.hProcess, INFINITE );
+    WaitForSingleObject( ytdlp_process.get(), INFINITE );
 
     DWORD ytdlp_exit_code;
 
-    if (!GetExitCodeProcess(pi.hProcess, &ytdlp_exit_code)) {
+    if (!GetExitCodeProcess(ytdlp_process.get(), &ytdlp_exit_code)) {
         task->failure_what = "Nepodařilo se komunikovat s ytdlp.exe (exit kód): " + GetLastErrorAsString();
         task->state = DownloadState::InicializationFailure;
         return;
     };
-
-    // Close process and thread handles. 
-    CloseHandle( pi.hProcess );
-    CloseHandle( pi.hThread );
 
     if (ytdlp_exit_code != 0) {
         task->state = DownloadState::InicializationInvalid;
@@ -159,13 +156,15 @@ void downloadVideoFromUrl(DownloadTask *task) {
 
     std::wstring host = convert_utf8_to_utf16(matches[4]);
 
-    HINTERNET connection = WinHttpConnect(internet, host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
+    HINTERNET raw_connection = WinHttpConnect(internet.get(), host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
 
-    if (!connection) {
-        task->failure_what = "Chyba při připojování: " + GetLastErrorAsString();
+    if (!raw_connection) {
+        task->failure_what = "Chyba při připojování (vytváření spojení): " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
     }
+
+    UniqueWinHTTPINTERNET connection(raw_connection);
 
     task->connection_desc = "Otevírání požadavku";
 
@@ -173,8 +172,8 @@ void downloadVideoFromUrl(DownloadTask *task) {
     std::string queryargs = matches[6];
     std::wstring querystring = convert_utf8_to_utf16(file + queryargs);
 
-    HINTERNET request = WinHttpOpenRequest(
-            connection,
+    HINTERNET raw_request = WinHttpOpenRequest(
+            connection.get(),
             L"GET",
             querystring.c_str(),
             NULL,
@@ -183,22 +182,21 @@ void downloadVideoFromUrl(DownloadTask *task) {
             WINHTTP_FLAG_SECURE
             );
 
-    if (!request) {
-        WinHttpCloseHandle(connection);
-        task->failure_what = "Chyba při připojování: " + GetLastErrorAsString();
+    if (!raw_request) {
+        task->failure_what = "Chyba při připojování (vytváření žádosti): " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
     }
+
+    UniqueWinHTTPINTERNET request(raw_request);
 
     task->connection_desc = "Přidávání hlaviček";
 
     for (const auto &[hk, hv] : ytdlp_data["http_headers"].items()) {
         std::string hval = hv; 
         std::wstring header = convert_utf8_to_utf16(hk + ": " + hval);
-        BOOL success = WinHttpAddRequestHeaders(request, header.c_str(), header.length(), WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+        BOOL success = WinHttpAddRequestHeaders(request.get(), header.c_str(), header.length(), WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
         if (!success) {
-            WinHttpCloseHandle(request);
-            WinHttpCloseHandle(connection);
             task->failure_what = "Chyba při připojování (přidávání hlaviček): " + GetLastErrorAsString();
             task->state = DownloadState::ConnectionFailure;
             return;
@@ -208,7 +206,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
     task->connection_desc = "Posílání požadavku";
 
     BOOL sent_request_success = WinHttpSendRequest(
-            request,
+            request.get(),
             WINHTTP_NO_ADDITIONAL_HEADERS,
             0L,
             WINHTTP_NO_REQUEST_DATA,
@@ -217,8 +215,6 @@ void downloadVideoFromUrl(DownloadTask *task) {
             NULL);
 
     if (!sent_request_success) {
-        WinHttpCloseHandle(request);
-        WinHttpCloseHandle(connection);
         task->failure_what = "Chyba při připojování (posílání požadavku): " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
@@ -226,11 +222,9 @@ void downloadVideoFromUrl(DownloadTask *task) {
 
     task->connection_desc = "Přijímání odpovědi";
 
-    BOOL received_success = WinHttpReceiveResponse(request, NULL);
+    BOOL received_success = WinHttpReceiveResponse(request.get(), NULL);
 
     if (!received_success) {
-        WinHttpCloseHandle(request);
-        WinHttpCloseHandle(connection);
         task->failure_what = "Chyba při připojování (přijímání odpovědi): " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
@@ -241,7 +235,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
     DWORD status_code = 0;
     DWORD status_code_size = sizeof(status_code);
     BOOL got_status_code = WinHttpQueryHeaders(
-            request,
+            request.get(),
             WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
             WINHTTP_HEADER_NAME_BY_INDEX,
             &status_code,
@@ -250,8 +244,6 @@ void downloadVideoFromUrl(DownloadTask *task) {
             );
 
     if (!got_status_code) {
-        WinHttpCloseHandle(request);
-        WinHttpCloseHandle(connection);
         task->failure_what = "Chyba při připojování (zjišťování status kódu): " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
@@ -260,8 +252,6 @@ void downloadVideoFromUrl(DownloadTask *task) {
     task->connection_desc = "Kontrolování status kódu";
 
     if (status_code != 200) {
-        WinHttpCloseHandle(request);
-        WinHttpCloseHandle(connection);
         if (status_code == 429 || status_code == 402) {
             task->failure_what = "Youtube dočasně blokuje stahování, zkuste to později";
         } else {
@@ -283,18 +273,14 @@ void downloadVideoFromUrl(DownloadTask *task) {
 
     do {
         if (task->suggested_stop) {
-            WinHttpCloseHandle(request);
-            WinHttpCloseHandle(connection);
             return;
         }
         data_available = 0;
         data_downloaded = 0;
 
-        BOOL query_successful = WinHttpQueryDataAvailable(request, &data_available);
+        BOOL query_successful = WinHttpQueryDataAvailable(request.get(), &data_available);
         if (!query_successful)
         {
-            WinHttpCloseHandle(request);
-            WinHttpCloseHandle(connection);
             task->failure_what = "Chyba při stahování (čtení velikosti bloku): " + GetLastErrorAsString();
             task->state = DownloadState::DownloadFailure;
             return;
@@ -302,11 +288,9 @@ void downloadVideoFromUrl(DownloadTask *task) {
 
         downloadbuffer.resize(data_available);
 
-        BOOL read_result = WinHttpReadData(request, downloadbuffer.data(), data_available, &data_downloaded);
+        BOOL read_result = WinHttpReadData(request.get(), downloadbuffer.data(), data_available, &data_downloaded);
         if (!read_result)
         {
-            WinHttpCloseHandle(request);
-            WinHttpCloseHandle(connection);
             task->failure_what = "Chyba při stahování (čtení bloku): " + GetLastErrorAsString();
             task->state = DownloadState::DownloadFailure;
             return;
@@ -318,8 +302,6 @@ void downloadVideoFromUrl(DownloadTask *task) {
         task->bytesdownloaded = videodata.size();
     } while (data_available > 0);
 
-    WinHttpCloseHandle(request);
-    WinHttpCloseHandle(connection);
 
     task->state = DownloadState::Saving;
 
