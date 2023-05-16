@@ -1,6 +1,7 @@
 const std = @import("std");
 const Build = std.Build;
 const Step = std.build.Step;
+const Manifest = Build.Cache.Manifest;
 const fs = std.fs;
 const mem = std.mem;
 const compress = std.compress;
@@ -104,25 +105,11 @@ pub fn build(b: *Build) !void {
     var compilation_args = std.ArrayList([]const u8).init(b.allocator);
     try compilation_args.appendSlice(&compiler_flags);
 
-    var cdstep: ?*CompilationDatabaseStep = step: {
-        if (doGenerateCompileCommands) {
-            var genstep = try CompilationDatabaseStep.initAlloc(b, &cpp_source_files, &compiler_flags);
-
-            try compilation_args.appendSlice(&.{ "-gen-cdb-fragment-path", genstep.cdb_dir_path });
-
-            b.default_step.dependOn(&genstep.step);
-            break :step genstep;
-        }
-
-        break :step null;
-    };
-
     const exe = b.addExecutable(.{
         .name = "YtDownloader",
         .target = target,
         .optimize = mode,
     });
-    exe.addCSourceFiles(&cpp_source_files, compilation_args.items);
     exe.addIncludePath("./build/imgui");
     exe.addIncludePath("./build/imgui/backends");
     exe.addIncludePath("./build/imgui/misc/cpp");
@@ -144,9 +131,18 @@ pub fn build(b: *Build) !void {
 
     exe.subsystem = std.Target.SubSystem.Windows;
 
-    if (cdstep) |s| {
-        s.step.dependOn(&exe.step);
+    if (doGenerateCompileCommands) {
+        var genstep = try CompilationDatabaseStep.initAlloc(b, exe, &cpp_source_files, &compiler_flags);
+
+        if (!genstep.cached) {
+            try compilation_args.appendSlice(&.{ "-gen-cdb-fragment-path", genstep.cdb_dir_path });
+
+            genstep.step.dependOn(&exe.step);
+            b.default_step.dependOn(&genstep.step);
+        }
     }
+
+    exe.addCSourceFiles(&cpp_source_files, compilation_args.items);
 
     const install_artifact = b.installArtifact(exe);
     _ = install_artifact;
@@ -248,16 +244,21 @@ const CompilationDatabaseStep = struct {
     cached: bool,
     hash: [Build.Cache.hex_digest_len]u8,
     cdb_dir_path: []u8,
-    manifest: Build.Cache.Manifest,
+    manifest: Manifest,
 
     const Self = @This();
 
-    pub fn initAlloc(b: *Build, source_files: []const []const u8, comp_flags: []const []const u8) !*Self {
+    pub fn initAlloc(b: *Build, exe: *Step.Compile, source_files: []const []const u8, comp_flags: []const []const u8) !*Self {
         var manifest = b.cache.obtain();
 
+        // FIXME: This isn't nearly enough to consistently cache builds, we need
+        //        to also cache the dependencies and their flags and includes
+        //        for this to be completely consistent, or atleast consistent enough
         manifest.hash.add(@as(u32, 0xad82deab));
         try manifest.addListOfFiles(source_files);
         manifest.hash.addListOfBytes(comp_flags);
+
+        try addCompileStepToManifest(&manifest, exe);
 
         const cached = try manifest.hit();
         const hash = manifest.final();
@@ -282,6 +283,36 @@ const CompilationDatabaseStep = struct {
             .manifest = manifest,
         };
         return allocated;
+    }
+
+    fn addCompileStepToManifest(manifest: *Manifest, exe: *Step.Compile) !void {
+        // FIXME This isn't nearly enough to consistently cache files,
+        //       for example, compiler flags aren't cached.
+
+        for (exe.c_macros.items) |macro| {
+            manifest.hash.add(@as(u32, 0x92197e58));
+            manifest.hash.addBytes(macro);
+        }
+
+        for (exe.include_dirs.items) |incl_dir| {
+            switch (incl_dir) {
+                .raw_path => |p| {
+                    manifest.hash.add(@as(u32, 0x4dfe65cb));
+                    manifest.hash.addBytes(p);
+                },
+                .raw_path_system => |p| {
+                    manifest.hash.add(@as(u32, 0xe30c8fb0));
+                    manifest.hash.addBytes(p);
+                },
+                .other_step => |s| {
+                    manifest.hash.add(@as(u32, 0x7229f45c));
+                    try addCompileStepToManifest(manifest, s);
+                },
+                .config_header_step => |_| {
+                    @panic("Unimplemented");
+                },
+            }
+        }
     }
 
     fn make(step: *Step, prog_node: *std.Progress.Node) !void {
