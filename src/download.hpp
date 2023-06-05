@@ -45,7 +45,7 @@ struct DownloadTask {
 
     std::string url;
 
-    DownloadTask(const std::string &url, bool audio_only) : audio_only(audio_only), url(url) {
+    DownloadTask(const std::string url, bool audio_only) : audio_only(audio_only), url(url) {
 
     }
 };

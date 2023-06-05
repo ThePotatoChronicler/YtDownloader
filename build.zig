@@ -134,9 +134,10 @@ pub fn build(b: *Build) !void {
     if (doGenerateCompileCommands) {
         var genstep = try CompilationDatabaseStep.initAlloc(b, exe, &cpp_source_files, &compiler_flags);
 
+        // FIXME This doesn't consistently check if the files exist and creates them, so deleting
+        //       the build file can result in this not creating a new one until something changes the manifest
         if (!genstep.cached) {
             try compilation_args.appendSlice(&.{ "-gen-cdb-fragment-path", genstep.cdb_dir_path });
-
             genstep.step.dependOn(&exe.step);
             b.default_step.dependOn(&genstep.step);
         }
@@ -254,7 +255,7 @@ const CompilationDatabaseStep = struct {
         // FIXME: This isn't nearly enough to consistently cache builds, we need
         //        to also cache the dependencies and their flags and includes
         //        for this to be completely consistent, or atleast consistent enough
-        manifest.hash.add(@as(u32, 0xad82deab));
+        manifest.hash.add(@as(u32, 0xad92deab));
         try manifest.addListOfFiles(source_files);
         manifest.hash.addListOfBytes(comp_flags);
 
@@ -344,7 +345,9 @@ const CompilationDatabaseStep = struct {
         const json_writer = cfjson_file.writer();
         try json_writer.writeByte('[');
 
-        var cdb_dir = try fs.openIterableDirAbsolute(self.cdb_dir_path, .{});
+        var cdb_dir = fs.openIterableDirAbsolute(self.cdb_dir_path, .{}) catch |err| {
+            return step.fail("Cannot open CDB directory '{s}': {s}", .{ self.cdb_dir_path, @errorName(err) });
+        };
         defer cdb_dir.close();
 
         var cdb_iter = cdb_dir.iterate();
@@ -352,7 +355,7 @@ const CompilationDatabaseStep = struct {
         var first = true;
 
         while (try cdb_iter.next()) |entry| {
-            if (entry.kind != .File) {
+            if (entry.kind != .file) {
                 return step.fail("Expected a file, found {s}", .{@tagName(entry.kind)});
             }
 

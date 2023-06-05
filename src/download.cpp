@@ -77,9 +77,9 @@ void downloadVideoFromUrl(DownloadTask *task) {
     }
 
     CloseHandle(writePipe.release());
+    CloseHandle(pi.hThread);
 
     UniqueWinHandle ytdlp_process(pi.hProcess);
-    UniqueWinHandle ytdlp_thread(pi.hThread);
 
     DWORD bytes_read = 0;
     std::string stdout_text;
@@ -120,6 +120,8 @@ void downloadVideoFromUrl(DownloadTask *task) {
         task->state = DownloadState::InicializationInvalid;
         return;
     }
+
+    CloseHandle(ytdlp_process.release());
 
     json ytdlp_data;
 

@@ -48,6 +48,10 @@ std::optional<std::wstring> get_folder_browser_path();
 void load_font();
 void load_imgui_ini();
 void save_imgui_ini();
+void download_window();
+void settings_window();
+void download_from_string(const char *str, bool audio_only = false);
+void copied_url_download(const char *clipboard_string);
 
 static void glfw_error_callback(int error, const char* description)
 {
@@ -59,6 +63,7 @@ GLFWwindow* appwindow = nullptr;
 const ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.0f);
 
 const std::regex uri_regex("^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?", std::regex::ECMAScript);
+const std::regex yt_regex(R"--(^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube(-nocookie)?\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|live\/|v\/)?)([\w\-]+)(\S+)?$)--", std::regex::ECMAScript);
 const std::wstring config_filename = L"nastaveni.json";
 std::wstring exec_path;
 std::wstring execdir_path;
@@ -233,29 +238,172 @@ void main_loop() {
     // ImGui::Text("yt-dlp location: %s", convert_utf16_to_utf8(ytdlp_path).c_str());
     // ImGui::End();
 
-    ImGui::Begin("Nastavení");
-
-    std::string savedir = config["uloziste"];
-    ImGui::Text("Složka na písničky: %s", savedir.c_str());
-    ImGui::SameLine();
-    if (ImGui::Button("Změnit") and !waiting_for_savepath) {
-        filebrowser_for_savepath = std::async(std::launch::async, get_folder_browser_path);
-        waiting_for_savepath = true;
+    if (ImGui::Begin("Nastavení")) {
+        settings_window();
     };
 
-    ImGui::Spacing();
-
-    int fontsize = config["velikostfontu"];
-    ImGui::InputInt("Velikost textu", &fontsize, 1, 5);
-    ImGui::Text("(Velikost textu se projeví až po restartování programu)");
-    if (fontsize < 8) fontsize = 8;
-    if (fontsize != config["velikostfontu"]) {
-        config["velikostfontu"] = fontsize;
-    }
     ImGui::End();
 
-    ImGui::Begin("Stahování");
+    if (ImGui::Begin("Stahování")) {
+        download_window();
+    };
 
+    ImGui::End();
+}
+
+std::wstring get_user_desktop_path() {
+    PWSTR ret;
+    HRESULT result = SHGetKnownFolderPath(FOLDERID_Desktop, KF_FLAG_DEFAULT, NULL, &ret);
+    std::wstring buf(ret);
+    CoTaskMemFree(ret);
+    return buf;
+}
+
+std::wstring get_exec_path() {
+    std::wstring res;
+    res.resize(MAX_PATH);
+    HMODULE mod = GetModuleHandleW(NULL);
+    DWORD newlen = GetModuleFileNameW(mod, res.data(), MAX_PATH);
+    res.resize(newlen);
+    return res;
+}
+
+// Shamelessly stolen
+std::optional<std::wstring> get_folder_browser_path() {
+ // Create an instance of the File Open Dialog object
+    IFileOpenDialog *pFileOpen;
+    HRESULT hr;
+    hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL, IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
+    if (SUCCEEDED(hr))
+    {
+        // Set the options on the dialog object
+        DWORD dwOptions;
+        hr = pFileOpen->GetOptions(&dwOptions);
+        if (SUCCEEDED(hr))
+        {
+            hr = pFileOpen->SetOptions(dwOptions | FOS_PICKFOLDERS | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
+        }
+
+        // Show the dialog
+        if (SUCCEEDED(hr))
+        {
+            hr = pFileOpen->Show(nullptr);
+        }
+
+        // Get the result of the user's interaction with the dialog
+        if (SUCCEEDED(hr))
+        {
+            // Get the selected folder
+            IShellItem *pItem;
+            hr = pFileOpen->GetResult(&pItem);
+            if (SUCCEEDED(hr))
+            {
+                // Get the folder's path
+                PWSTR pszFolderPath;
+                hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFolderPath);
+                if (SUCCEEDED(hr))
+                {
+                    // Use the folder path here
+                    std::wstring buf(pszFolderPath);
+                    CoTaskMemFree(pszFolderPath);
+                    return buf;
+                }
+
+                pItem->Release();
+            }
+        }
+
+        pFileOpen->Release();
+    }
+    return std::optional<std::wstring>();
+}
+
+void load_imgui_ini() {
+    std::ifstream inifile(imgui_ini_path);
+
+    if (!inifile) {
+        return;
+    }
+
+    inifile.seekg(0, inifile.end);
+    std::streamsize inifilesize = inifile.tellg();
+    inifile.seekg(0, inifile.beg);
+
+    char *ini_data = new char[inifilesize];
+    inifile.read(ini_data, inifilesize);
+
+    ImGui::LoadIniSettingsFromMemory(ini_data, inifilesize);
+}
+
+void save_imgui_ini() {
+    std::ofstream inifile(imgui_ini_path, std::ios::trunc | std::ios::binary);
+
+    size_t inimemorysize = 0;
+    const char *inimemory = ImGui::SaveIniSettingsToMemory(&inimemorysize);
+
+    inifile.write(inimemory, inimemorysize);
+}
+
+void load_font() {
+    ImGuiIO& io = ImGui::GetIO();
+
+    std::ifstream fontfile(font_path, std::ios::in | std::ios::binary);
+    if (!fontfile) {
+        io.Fonts->AddFontDefault();
+        return;
+    }
+
+    fontfile.seekg(0, fontfile.end);
+    std::streamsize fontfilesize = fontfile.tellg();
+    fontfile.seekg(0, fontfile.beg);
+
+    font_data = new char[fontfilesize];
+    fontfile.read(font_data, fontfilesize);
+
+    ImVector<ImWchar> ranges;
+    ImFontGlyphRangesBuilder builder;
+    // No break space
+    builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+    builder.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
+    builder.AddRanges(io.Fonts->GetGlyphRangesChineseFull());
+    builder.AddRanges(io.Fonts->GetGlyphRangesJapanese());
+    builder.AddRanges(io.Fonts->GetGlyphRangesGreek());
+    builder.AddRanges(io.Fonts->GetGlyphRangesKorean());
+    builder.AddRanges(io.Fonts->GetGlyphRangesThai());
+    builder.AddRanges(io.Fonts->GetGlyphRangesVietnamese());
+    for (ImWchar val = u'\u0100'; val <= u'\u017f'; val++) {
+        builder.AddChar(val);
+    }
+    for (ImWchar val = u'\u0080'; val <= u'\u00FF'; val++) {
+        builder.AddChar(val);
+    }
+    for (ImWchar val = u'\u2000'; val <= u'\u206F'; val++) {
+        builder.AddChar(val);
+    }
+    for (ImWchar val = u'\u2400'; val <= u'\u243F'; val++) {
+        builder.AddChar(val);
+    }
+    for (ImWchar val = u'\u3000'; val <= u'\u303F'; val++) {
+        builder.AddChar(val);
+    }
+    for (ImWchar val = u'\u3000'; val <= u'\u303F'; val++) {
+        builder.AddChar(val);
+    }
+    for (ImWchar val = u'\uFE70'; val <= u'\uFEFF'; val++) {
+        builder.AddChar(val);
+    }
+    for (ImWchar val = u'\uFF00'; val <= u'\uFFEF'; val++) {
+        builder.AddChar(val);
+    }
+    builder.BuildRanges(&ranges);
+
+    ImFont* font = io.Fonts->AddFontFromMemoryTTF(font_data, fontfilesize, config["velikostfontu"], NULL, ranges.Data);
+    io.Fonts->Build();
+    IM_ASSERT(font != NULL);
+}
+
+void download_window() {
+    
     ImGui::InputText("YouTube odkaz", &text_input_youtube_url);
 
     bool download_button_pressed = ImGui::Button("Stáhnout");
@@ -263,11 +411,16 @@ void main_loop() {
     bool download_audio_only_button_pressed = ImGui::Button("Stáhnout pouze zvuk");
 
     if (download_button_pressed || download_audio_only_button_pressed) {
-        DownloadTask *new_task = new DownloadTask(text_input_youtube_url, download_audio_only_button_pressed);
-        auto &task = downloads.emplace_back(new_task);
-        task->self_thread = std::thread(downloadVideoFromUrl, task);
+        download_from_string(text_input_youtube_url.c_str(), download_audio_only_button_pressed);
         text_input_youtube_url.clear();
     };
+
+    const char *clipboard_string;
+    if ((clipboard_string = glfwGetClipboardString(appwindow)) != NULL) {
+        if (std::regex_match(clipboard_string, yt_regex)) {
+            copied_url_download(clipboard_string);
+        }
+    }
 
     ImGui::Dummy(ImVec2(0, ImGui::GetFontSize()));
     ImGui::Text("Probíhající stahování");
@@ -387,155 +540,41 @@ void main_loop() {
             downloads_iter++;
         }
     }
-    ImGui::End();
 }
 
-std::wstring get_user_desktop_path() {
-    PWSTR ret;
-    HRESULT result = SHGetKnownFolderPath(FOLDERID_Desktop, KF_FLAG_DEFAULT, NULL, &ret);
-    std::wstring buf(ret);
-    CoTaskMemFree(ret);
-    return buf;
+void download_from_string(const char *url, bool audio_only) {
+    DownloadTask *new_task = new DownloadTask(url, audio_only);
+    auto &task = downloads.emplace_back(new_task);
+    task->self_thread = std::thread(downloadVideoFromUrl, task);
 }
 
-std::wstring get_exec_path() {
-    std::wstring res;
-    res.resize(MAX_PATH);
-    HMODULE mod = GetModuleHandleW(NULL);
-    DWORD newlen = GetModuleFileNameW(mod, res.data(), MAX_PATH);
-    res.resize(newlen);
-    return res;
-}
+void settings_window() {
+    std::string savedir = config["uloziste"];
+    ImGui::Text("Složka na písničky: %s", savedir.c_str());
+    ImGui::SameLine();
+    if (ImGui::Button("Změnit") and !waiting_for_savepath) {
+        filebrowser_for_savepath = std::async(std::launch::async, get_folder_browser_path);
+        waiting_for_savepath = true;
+    };
 
-// Shamelessly stolen
-std::optional<std::wstring> get_folder_browser_path() {
- // Create an instance of the File Open Dialog object
-    IFileOpenDialog *pFileOpen;
-    HRESULT hr;
-    hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL, IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
-    if (SUCCEEDED(hr))
-    {
-        // Set the options on the dialog object
-        DWORD dwOptions;
-        hr = pFileOpen->GetOptions(&dwOptions);
-        if (SUCCEEDED(hr))
-        {
-            hr = pFileOpen->SetOptions(dwOptions | FOS_PICKFOLDERS | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
-        }
+    ImGui::Spacing();
 
-        // Show the dialog
-        if (SUCCEEDED(hr))
-        {
-            hr = pFileOpen->Show(nullptr);
-        }
-
-        // Get the result of the user's interaction with the dialog
-        if (SUCCEEDED(hr))
-        {
-            // Get the selected folder
-            IShellItem *pItem;
-            hr = pFileOpen->GetResult(&pItem);
-            if (SUCCEEDED(hr))
-            {
-                // Get the folder's path
-                PWSTR pszFolderPath;
-                hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFolderPath);
-                if (SUCCEEDED(hr))
-                {
-                    // Use the folder path here
-                    std::wstring buf(pszFolderPath);
-                    CoTaskMemFree(pszFolderPath);
-                    return buf;
-                }
-
-                pItem->Release();
-            }
-        }
-
-        pFileOpen->Release();
+    int fontsize = config["velikostfontu"];
+    ImGui::InputInt("Velikost textu", &fontsize, 1, 5);
+    ImGui::Text("(Velikost textu se projeví až po restartování programu)");
+    if (fontsize < 8) fontsize = 8;
+    if (fontsize != config["velikostfontu"]) {
+        config["velikostfontu"] = fontsize;
     }
-    return std::optional<std::wstring>();
 }
 
-void load_imgui_ini() {
-    std::ifstream inifile(imgui_ini_path);
-
-    if (!inifile) {
-        return;
-    }
-
-    inifile.seekg(0, inifile.end);
-    std::streamsize inifilesize = inifile.tellg();
-    inifile.seekg(0, inifile.beg);
-
-    char *ini_data = new char[inifilesize];
-    inifile.read(ini_data, inifilesize);
-
-    ImGui::LoadIniSettingsFromMemory(ini_data, inifilesize);
-}
-
-void save_imgui_ini() {
-    std::ofstream inifile(imgui_ini_path, std::ios::trunc | std::ios::binary);
-
-    size_t inimemorysize = 0;
-    const char *inimemory = ImGui::SaveIniSettingsToMemory(&inimemorysize);
-
-    inifile.write(inimemory, inimemorysize);
-}
-
-void load_font() {
-    ImGuiIO& io = ImGui::GetIO();
-
-    std::ifstream fontfile(font_path, std::ios::in | std::ios::binary);
-    if (fontfile) {
-        fontfile.seekg(0, fontfile.end);
-        std::streamsize fontfilesize = fontfile.tellg();
-        fontfile.seekg(0, fontfile.beg);
-
-        font_data = new char[fontfilesize];
-        fontfile.read(font_data, fontfilesize);
-
-        ImVector<ImWchar> ranges;
-        ImFontGlyphRangesBuilder builder;
-        // No break space
-        builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
-        builder.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
-        builder.AddRanges(io.Fonts->GetGlyphRangesChineseFull());
-        builder.AddRanges(io.Fonts->GetGlyphRangesJapanese());
-        builder.AddRanges(io.Fonts->GetGlyphRangesGreek());
-        builder.AddRanges(io.Fonts->GetGlyphRangesKorean());
-        builder.AddRanges(io.Fonts->GetGlyphRangesThai());
-        builder.AddRanges(io.Fonts->GetGlyphRangesVietnamese());
-        for (ImWchar val = u'\u0100'; val <= u'\u017f'; val++) {
-            builder.AddChar(val);
-        }
-        for (ImWchar val = u'\u0080'; val <= u'\u00FF'; val++) {
-            builder.AddChar(val);
-        }
-        for (ImWchar val = u'\u2000'; val <= u'\u206F'; val++) {
-            builder.AddChar(val);
-        }
-        for (ImWchar val = u'\u2400'; val <= u'\u243F'; val++) {
-            builder.AddChar(val);
-        }
-        for (ImWchar val = u'\u3000'; val <= u'\u303F'; val++) {
-            builder.AddChar(val);
-        }
-        for (ImWchar val = u'\u3000'; val <= u'\u303F'; val++) {
-            builder.AddChar(val);
-        }
-        for (ImWchar val = u'\uFE70'; val <= u'\uFEFF'; val++) {
-            builder.AddChar(val);
-        }
-        for (ImWchar val = u'\uFF00'; val <= u'\uFFEF'; val++) {
-            builder.AddChar(val);
-        }
-        builder.BuildRanges(&ranges);
-
-        ImFont* font = io.Fonts->AddFontFromMemoryTTF(font_data, fontfilesize, config["velikostfontu"], NULL, ranges.Data);
-        io.Fonts->Build();
-        IM_ASSERT(font != NULL);
-    } else {
-        io.Fonts->AddFontDefault();
+void copied_url_download(const char *clipboard_string) {    
+    ImGui::Dummy(ImVec2(0, ImGui::GetFontSize() * 0.5));
+    ImGui::Text("Zkopírované URL: %s", clipboard_string);
+    bool download = ImGui::Button("Stáhnout##Stáhnout z odkazu");
+    ImGui::SameLine();
+    bool download_audio_only = ImGui::Button("Stáhnout pouze zvuk##Stáhnout pouze zvuk z odkazu");
+    if (download || download_audio_only) {
+        download_from_string(clipboard_string, download_audio_only);
     }
 }
