@@ -7,6 +7,7 @@ const mem = std.mem;
 const compress = std.compress;
 const io = std.io;
 const math = std.math;
+const LazyPath = std.Build.LazyPath;
 
 const cpp_source_files = .{
     "./src/main.cpp",
@@ -53,8 +54,8 @@ pub fn build(b: *Build) !void {
         "-std=c++11",
         // "-g",
     });
-    imgui.addIncludePath("./build/imgui");
-    imgui.addIncludePath("./build/glfw/include");
+    imgui.addIncludePath(LazyPath.relative("build/imgui"));
+    imgui.addIncludePath(LazyPath.relative("build/glfw/include"));
     imgui.linkLibC();
     imgui.linkLibCpp();
     imgui.linkSystemLibraryName("opengl32");
@@ -110,11 +111,11 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = mode,
     });
-    exe.addIncludePath("./build/imgui");
-    exe.addIncludePath("./build/imgui/backends");
-    exe.addIncludePath("./build/imgui/misc/cpp");
-    exe.addIncludePath("./build/glfw/include");
-    exe.addSystemIncludePath("./build/cpp-json/single_include");
+    exe.addIncludePath(LazyPath.relative("build/imgui"));
+    exe.addIncludePath(LazyPath.relative("build/imgui/backends"));
+    exe.addIncludePath(LazyPath.relative("build/imgui/misc/cpp"));
+    exe.addIncludePath(LazyPath.relative("build/glfw/include"));
+    exe.addSystemIncludePath(LazyPath.relative("build/cpp-json/single_include"));
     exe.linkLibC();
     exe.linkLibCpp();
     exe.linkSystemLibraryName("ole32");
@@ -259,7 +260,7 @@ const CompilationDatabaseStep = struct {
         try manifest.addListOfFiles(source_files);
         manifest.hash.addListOfBytes(comp_flags);
 
-        try addCompileStepToManifest(&manifest, exe);
+        try addCompileStepToManifest(&manifest, exe, b);
 
         const cached = try manifest.hit();
         const hash = manifest.final();
@@ -286,7 +287,7 @@ const CompilationDatabaseStep = struct {
         return allocated;
     }
 
-    fn addCompileStepToManifest(manifest: *Manifest, exe: *Step.Compile) !void {
+    fn addCompileStepToManifest(manifest: *Manifest, exe: *Step.Compile, b: *std.Build) !void {
         // FIXME This isn't nearly enough to consistently cache files,
         //       for example, compiler flags aren't cached.
 
@@ -297,17 +298,17 @@ const CompilationDatabaseStep = struct {
 
         for (exe.include_dirs.items) |incl_dir| {
             switch (incl_dir) {
-                .raw_path => |p| {
-                    manifest.hash.add(@as(u32, 0x4dfe65cb));
-                    manifest.hash.addBytes(p);
+                .path => |p| {
+                    manifest.hash.add(@as(u32, 0x4dfe76cb));
+                    manifest.hash.addBytes(p.getPath(b));
                 },
-                .raw_path_system => |p| {
-                    manifest.hash.add(@as(u32, 0xe30c8fb0));
-                    manifest.hash.addBytes(p);
+                .path_system => |p| {
+                    manifest.hash.add(@as(u32, 0xe31c9fb0));
+                    manifest.hash.addBytes(p.getPath(b));
                 },
                 .other_step => |s| {
-                    manifest.hash.add(@as(u32, 0x7229f45c));
-                    try addCompileStepToManifest(manifest, s);
+                    manifest.hash.add(@as(u32, 0x7289f95c));
+                    try addCompileStepToManifest(manifest, s, b);
                 },
                 .config_header_step => |_| {
                     @panic("Unimplemented");
