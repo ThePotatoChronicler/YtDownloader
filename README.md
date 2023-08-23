@@ -13,7 +13,7 @@ to spend an extended amount of time on this, feel free to fork it in that case
 and work on this yourself, if you're inclined to do so.
 
 # Zig version
-Currently tested and built using: 0.12.0-dev.15+1c7798a3c
+Currently tested and built using: 0.12.0-dev.163+6780a6bbf
 
 # Using clangd for completions
 You can create compile_commands.json while building using -Dgenerate-ccjson=true flag.
@@ -23,13 +23,13 @@ Compilation was made specifically for Linux, you may have to change it
 to compile on different operating systems or architectures.
 
 ## Dependencies
-There are a few dependencies, there are three ways to download them, manually,
-or using the convenient download.sh posix script, which uses curl or wget
+There are a few dependencies and there are three ways to download them:
+- Manually
+- Using the convenient download.sh posix script, which uses curl or wget
 to fetch the sources and tar to decompress them (GNU tar specifically, but
 it should work with most other implementations, with busybox being an outlier
 and possibly not working).
-
-The third way is built directly into zig build, but that way is unstable
+- Built directly into `build.zig`, but that way is unstable
 and may result in panics and a corrupted download, use with caution.
 
 After obtaining dependencies, simply running `zig build` should be enough to build.
@@ -42,7 +42,7 @@ You also probably want to include the licenses of imgui, gltf, cpp-json and yt-d
 
 ## yt-dlp.exe
 Obtain `yt-dlp.exe` from its [github](https://github.com/yt-dlp/yt-dlp).
-I specifically tested it with release `2023.03.04`.
+I specifically tested it with release `2023.07.06`.
 The executable name must be exact.
 
 ## font.ttf

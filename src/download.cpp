@@ -7,8 +7,11 @@
 #include <winhttp.h>
 #include <fstream>
 #include "global.hpp"
+#include "i18n.h"
 
 using json = nlohmann::json;
+
+// FIXME: Error text language won't change when the language changes
 
 void downloadVideoFromUrl(DownloadTask *task) {
     std::string videoformat;
@@ -43,7 +46,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
             );
 
     if (!created_pipe) {
-        task->failure_what = "Nepodařilo se spustit ytdlp.exe (tvorba výstupní trubky): " + GetLastErrorAsString();
+        task->failure_what = std::string(get_phrase("download_error_fail_pipe")) + ": " + GetLastErrorAsString();
         task->state = DownloadState::InicializationFailure;
         return;
     }
@@ -71,7 +74,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
             );
 
     if (!created_process) {
-        task->failure_what = "Nepodařilo se spustit ytdlp.exe: " + GetLastErrorAsString();
+        task->failure_what = std::string(get_phrase("download_error_launch_ytdlp")) + ": " + GetLastErrorAsString();
         task->state = DownloadState::InicializationFailure;
         return;
     }
@@ -95,7 +98,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
                 SetLastError(0);
                 break;
             } else {
-                task->failure_what = "Nepodařilo se komunikovat s ytdlp.exe (výstup): " + GetLastErrorAsString();
+                task->failure_what = std::string(get_phrase("download_error_communicate_ytdlp_output")) + ": " + GetLastErrorAsString();
                 task->state = DownloadState::InicializationFailure;
                 return;
             }
@@ -111,7 +114,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
     DWORD ytdlp_exit_code;
 
     if (!GetExitCodeProcess(ytdlp_process.get(), &ytdlp_exit_code)) {
-        task->failure_what = "Nepodařilo se komunikovat s ytdlp.exe (exit kód): " + GetLastErrorAsString();
+        task->failure_what = std::string(get_phrase("download_error_communicate_ytdlp_exitcode")) + ": " + GetLastErrorAsString();
         task->state = DownloadState::InicializationFailure;
         return;
     };
@@ -128,7 +131,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
     try {
         ytdlp_data = json::parse(stdout_text);
     } catch (json::parse_error error) {
-        task->failure_what = "Nepodařilo se přečíst data o videu: " + std::string(error.what());
+        task->failure_what = std::string(get_phrase("download_error_video_data_parse")) + ": " + std::string(error.what());
         task->state = DownloadState::InicializationFailure;
         return;
     }
@@ -137,7 +140,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
     task->state = DownloadState::InicializationSuccess;
 
     if (ytdlp_data["requested_downloads"].size() == 0) {
-        task->failure_what = "Není dostupné žádné vhodné stažení";
+        task->failure_what = get_phrase("download_error_no_requested_download");
         task->state = DownloadState::NoDownloadFound;
         return;
     };
@@ -150,7 +153,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
         task->filesize = download["filesize_approx"];
     }
 
-    task->connection_desc = "Připojování k serveru";
+    task->connection_desc = get_phrase("connecting_to_server");
     task->state = DownloadState::Connecting;
 
     std::smatch matches;
@@ -161,14 +164,14 @@ void downloadVideoFromUrl(DownloadTask *task) {
     HINTERNET raw_connection = WinHttpConnect(internet.get(), host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
 
     if (!raw_connection) {
-        task->failure_what = "Chyba při připojování (vytváření spojení): " + GetLastErrorAsString();
+        task->failure_what = std::string(get_phrase("download_error_connection_failure_connection")) + ": " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
     }
 
     UniqueWinHTTPINTERNET connection(raw_connection);
 
-    task->connection_desc = "Otevírání požadavku";
+    task->connection_desc = get_phrase("opening_request");
 
     std::string file = matches[5];
     std::string queryargs = matches[6];
@@ -185,27 +188,27 @@ void downloadVideoFromUrl(DownloadTask *task) {
             );
 
     if (!raw_request) {
-        task->failure_what = "Chyba při připojování (vytváření žádosti): " + GetLastErrorAsString();
+        task->failure_what = std::string(get_phrase("download_error_connection_failure_request")) + ": " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
     }
 
     UniqueWinHTTPINTERNET request(raw_request);
 
-    task->connection_desc = "Přidávání hlaviček";
+    task->connection_desc = get_phrase("adding_headers");
 
     for (const auto &[hk, hv] : ytdlp_data["http_headers"].items()) {
         std::string hval = hv; 
         std::wstring header = convert_utf8_to_utf16(hk + ": " + hval);
         BOOL success = WinHttpAddRequestHeaders(request.get(), header.c_str(), header.length(), WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
         if (!success) {
-            task->failure_what = "Chyba při připojování (přidávání hlaviček): " + GetLastErrorAsString();
+            task->failure_what = std::string(get_phrase("download_error_connection_failure_headers")) + ": " + GetLastErrorAsString();
             task->state = DownloadState::ConnectionFailure;
             return;
         }
     }
 
-    task->connection_desc = "Posílání požadavku";
+    task->connection_desc = get_phrase("sending_request");
 
     BOOL sent_request_success = WinHttpSendRequest(
             request.get(),
@@ -217,22 +220,22 @@ void downloadVideoFromUrl(DownloadTask *task) {
             NULL);
 
     if (!sent_request_success) {
-        task->failure_what = "Chyba při připojování (posílání požadavku): " + GetLastErrorAsString();
+        task->failure_what = std::string(get_phrase("download_error_connection_failure_sending")) + ": " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
     }
 
-    task->connection_desc = "Přijímání odpovědi";
+    task->connection_desc = get_phrase("accepting_response");
 
     BOOL received_success = WinHttpReceiveResponse(request.get(), NULL);
 
     if (!received_success) {
-        task->failure_what = "Chyba při připojování (přijímání odpovědi): " + GetLastErrorAsString();
+        task->failure_what = std::string(get_phrase("download_error_connection_failure_response")) + ": " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
     }
 
-    task->connection_desc = "Zjišťování status kódu";
+    task->connection_desc = get_phrase("getting_status_code");
 
     DWORD status_code = 0;
     DWORD status_code_size = sizeof(status_code);
@@ -246,24 +249,31 @@ void downloadVideoFromUrl(DownloadTask *task) {
             );
 
     if (!got_status_code) {
-        task->failure_what = "Chyba při připojování (zjišťování status kódu): " + GetLastErrorAsString();
+        task->failure_what = std::string(get_phrase("download_error_connection_failure_status")) + ": " + GetLastErrorAsString();
         task->state = DownloadState::ConnectionFailure;
         return;
     }
 
-    task->connection_desc = "Kontrolování status kódu";
+    task->connection_desc = get_phrase("checking_status_code");
 
     if (status_code != 200) {
         if (status_code == 429 || status_code == 402) {
-            task->failure_what = "Youtube dočasně blokuje stahování, zkuste to později";
+            task->failure_what = get_phrase("error_youtube_temporary_block");
         } else {
-            task->failure_what = "Chyba při připojování (špatný status kód " + std::to_string(status_code) + "): " + GetLastErrorAsString();
+            std::string what = std::string(get_phrase("download_error_connection_failure_bad_status_1"));
+            what += " (";
+            what += std::string(get_phrase("download_error_connection_failure_bad_status_2"));
+            what += " ";
+            what += std::to_string(status_code);
+            what += "): ";
+            what += GetLastErrorAsString();
+            task->failure_what = what;
         }
         task->state = DownloadState::ConnectionFailure;
         return;
     }
 
-    task->connection_desc = "Začínání přijímání videa";
+    task->connection_desc = get_phrase("starting_download");
 
     task->state = DownloadState::Downloading;
 
@@ -283,7 +293,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
         BOOL query_successful = WinHttpQueryDataAvailable(request.get(), &data_available);
         if (!query_successful)
         {
-            task->failure_what = "Chyba při stahování (čtení velikosti bloku): " + GetLastErrorAsString();
+            task->failure_what = std::string(get_phrase("download_error_download_block_size")) + ": " + GetLastErrorAsString();
             task->state = DownloadState::DownloadFailure;
             return;
         }
@@ -293,7 +303,7 @@ void downloadVideoFromUrl(DownloadTask *task) {
         BOOL read_result = WinHttpReadData(request.get(), downloadbuffer.data(), data_available, &data_downloaded);
         if (!read_result)
         {
-            task->failure_what = "Chyba při stahování (čtení bloku): " + GetLastErrorAsString();
+            task->failure_what = std::string(get_phrase("download_error_download_read_block")) + ": " + GetLastErrorAsString();
             task->state = DownloadState::DownloadFailure;
             return;
         }
@@ -307,13 +317,13 @@ void downloadVideoFromUrl(DownloadTask *task) {
 
     task->state = DownloadState::Saving;
 
-    std::string savepath = config["uloziste"];
+    std::string savepath = config["downloads"];
     std::string videofile_name = download["_filename"];
     std::string videofile_path = savepath + "\\" + videofile_name;
     std::ofstream videofile(convert_utf8_to_utf16(videofile_path), std::ios::trunc | std::ios::binary);
 
     if (!videofile) {
-        task->failure_what = "Chyba při ukládání: nelze otevřít výstupní soubor";
+        task->failure_what = get_phrase("download_error_save_open_outfile");
         task->state = DownloadState::SaveFailure;
         return;
     }

@@ -12,11 +12,11 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.12.0-dev.15+1c7798a3c
+          version: 0.12.0-dev.163+6780a6bbf
       - name: Download dependencies
         run: sh download.sh
       - name: Compile
-        run: zig build
+        run: zig build -Doptimize=ReleaseFast
       - uses: actions/upload-artifact@v3
         with:
           name: zig-out

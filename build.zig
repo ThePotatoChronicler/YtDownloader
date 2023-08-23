@@ -8,6 +8,8 @@ const compress = std.compress;
 const io = std.io;
 const math = std.math;
 const LazyPath = std.Build.LazyPath;
+const json = std.json;
+const ArrayList = std.ArrayList;
 
 const cpp_source_files = .{
     "./src/main.cpp",
@@ -23,6 +25,12 @@ const compiler_flags = .{
     // "-g",
 };
 
+const JsonLanguage = struct {
+    lang: []const u8,
+    formalname: []const u8,
+    phrases: json.ArrayHashMap([]const u8),
+};
+
 pub fn build(b: *Build) !void {
     const doDownloadSources = b.option(bool, "fetch-sources", "Downloads and unpacks sources (Experimental)") orelse false;
     const doGenerateCompileCommands = b.option(bool, "generate-ccjson", "Generate compile_commands.json") orelse false;
@@ -32,14 +40,12 @@ pub fn build(b: *Build) !void {
     }
 
     const target = std.zig.CrossTarget.parse(.{ .arch_os_abi = "x86_64-windows-gnu" }) catch unreachable;
-
-    // const mode = std.builtin.Mode.Debug;
-    const mode = std.builtin.Mode.ReleaseFast;
+    const optimize = b.standardOptimizeOption(.{});
 
     const imgui = b.addStaticLibrary(.{
         .name = "imgui",
         .target = target,
-        .optimize = mode,
+        .optimize = optimize,
     });
     imgui.addCSourceFiles(&.{
         "./build/imgui/imgui.cpp",
@@ -63,7 +69,7 @@ pub fn build(b: *Build) !void {
     const glfw = b.addStaticLibrary(.{
         .name = "glfw",
         .target = target,
-        .optimize = mode,
+        .optimize = optimize,
     });
     glfw.defineCMacro("_GLFW_WIN32", null);
 
@@ -106,10 +112,33 @@ pub fn build(b: *Build) !void {
     var compilation_args = std.ArrayList([]const u8).init(b.allocator);
     try compilation_args.appendSlice(&compiler_flags);
 
+    const i18n = b.addStaticLibrary(.{
+        .name = "i18n",
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = LazyPath.relative("src/i18n.zig"),
+    });
+
+    i18n.linkLibC();
+    i18n.addIncludePath(LazyPath.relative("src"));
+
+    const i18n_build = b.addOptions();
+    i18n.addOptions("i18n_build", i18n_build);
+
+    const translation_texts = try getTranslationTexts(b);
+    defer {
+        for (translation_texts.items) |i| {
+            b.allocator.free(i);
+        }
+        translation_texts.deinit();
+    }
+
+    try fillTranslationOptions(i18n_build, translation_texts.items);
+
     const exe = b.addExecutable(.{
         .name = "YtDownloader",
         .target = target,
-        .optimize = mode,
+        .optimize = optimize,
     });
     exe.addIncludePath(LazyPath.relative("build/imgui"));
     exe.addIncludePath(LazyPath.relative("build/imgui/backends"));
@@ -124,11 +153,18 @@ pub fn build(b: *Build) !void {
     exe.linkSystemLibraryName("api-ms-win-core-path-l1-1-0");
     exe.defineCMacro("INITGUID", null);
 
-    // Temporary fix, since LTO is deleting _create_locale, needed by json
+    if (optimize == .Debug) {
+        exe.defineCMacro("JSON_DIAGNOSTICS", null);
+    }
+
+    // Temporary fix, since LTO is deleting _create_locale, needed by cpp-json
     exe.want_lto = false;
+
+    exe.addIncludePath(LazyPath.relative("src"));
 
     exe.linkLibrary(imgui);
     exe.linkLibrary(glfw);
+    exe.linkLibrary(i18n);
 
     exe.subsystem = std.Target.SubSystem.Windows;
 
@@ -306,6 +342,14 @@ const CompilationDatabaseStep = struct {
                     manifest.hash.add(@as(u32, 0xe31c9fb0));
                     manifest.hash.addBytes(p.getPath(b));
                 },
+                .framework_path => |p| {
+                    manifest.hash.add(@as(u32, 0x06ec1b92));
+                    manifest.hash.addBytes(p.getPath(b));
+                },
+                .framework_path_system => |p| {
+                    manifest.hash.add(@as(u32, 0x9f63b83f));
+                    manifest.hash.addBytes(p.getPath(b));
+                },
                 .other_step => |s| {
                     manifest.hash.add(@as(u32, 0x7289f95c));
                     try addCompileStepToManifest(manifest, s, b);
@@ -378,3 +422,71 @@ const CompilationDatabaseStep = struct {
         try self.manifest.writeManifest();
     }
 };
+
+fn getTranslationTexts(b: *std.Build) !std.ArrayList([]const u8) {
+    var translation = try b.build_root.handle.openIterableDir("translation", .{});
+    var walker = try translation.walk(b.allocator);
+    defer walker.deinit();
+
+    var texts = std.ArrayList([]const u8).init(b.allocator);
+    errdefer {
+        for (texts.items) |i| {
+            b.allocator.free(i);
+        }
+        texts.deinit();
+    }
+
+    while (try walker.next()) |entry| {
+        if (entry.kind != .file) {
+            continue;
+        }
+
+        if (!mem.endsWith(u8, entry.path, ".json")) {
+            continue;
+        }
+
+        // std.debug.print("Parsing {s}\n", .{entry.basename});
+
+        var file = try entry.dir.openFile(entry.basename, .{});
+        defer file.close();
+
+        var jsontext = try file.readToEndAlloc(b.allocator, math.pow(usize, 2, 16));
+        try texts.append(jsontext);
+    }
+
+    return texts;
+}
+
+fn fillTranslationOptions(options: *std.Build.Step.Options, translation_texts: []const []const u8) !void {
+    const b = options.step.owner;
+    const allocator = b.allocator;
+
+    var langobjects = ArrayList(json.Parsed(JsonLanguage)).init(allocator);
+    defer {
+        for (langobjects.items) |obj| {
+            obj.deinit();
+        }
+        langobjects.deinit();
+    }
+
+    var langs = ArrayList([]const u8).init(allocator);
+    defer langs.deinit();
+
+    var formalnames = ArrayList([]const u8).init(allocator);
+    defer formalnames.deinit();
+
+    for (translation_texts) |text| {
+        // TODO Log syntax errors with filename and/or path
+        const lang = try json.parseFromSlice(JsonLanguage, allocator, text, .{});
+
+        try langobjects.append(lang);
+        try langs.append(lang.value.lang);
+        try formalnames.append(lang.value.formalname);
+
+        options.addOption([]const []const u8, b.fmt("phrases_{s}_keys", .{lang.value.lang}), lang.value.phrases.map.keys());
+        options.addOption([]const []const u8, b.fmt("phrases_{s}_vals", .{lang.value.lang}), lang.value.phrases.map.values());
+    }
+
+    options.addOption([]const []const u8, "langs", langs.items);
+    options.addOption([]const []const u8, "formalnames", formalnames.items);
+}

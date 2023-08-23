@@ -9,6 +9,7 @@
 #include <future>
 #include <imgui.h>
 #include <GLFW/glfw3.h>
+#include "i18n.h"
 
 extern GLFWwindow* appwindow;
 extern const ImVec4 clear_color;

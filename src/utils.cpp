@@ -5,10 +5,12 @@
 #include <utility>
 #include <windows.h>
 #include <shlwapi.h>
+#include "i18n.h"
 #include "utils.hpp"
 #include <locale>
 #include <codecvt>
 #include <winhttp.h>
+#include "global.hpp"
 
 // https://stackoverflow.com/a/17387176
 //Returns the last Win32 error, in string format. Returns an empty string if there is no error.
@@ -65,3 +67,9 @@ void UniqueWinHTTPINTERNETDeleter::operator()(HINTERNET handle) {
 void UniqueWinHandleDeleter::operator()(HANDLE handle) {
     CloseHandle(handle);
 }
+
+const char *get_phrase(const char* id) {
+    const bool has_lang = config.contains("language") and config["language"].is_string();
+    const std::string &lang = has_lang ? config["language"] : "en";
+    return YD_get_phrase_str(lang.c_str(), id);
+};

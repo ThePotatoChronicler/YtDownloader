@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <string>
 #include <winhttp.h>
+#include "i18n.h"
 
 std::string GetLastErrorAsString(DWORD* = NULL);
 std::string format_filesize(DWORD filesize);
@@ -20,3 +21,5 @@ struct UniqueWinHandleDeleter {
 };
 
 using UniqueWinHandle = std::unique_ptr<void, UniqueWinHandleDeleter>;
+
+const char *get_phrase(const char* id);
