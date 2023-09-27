@@ -1,0 +1,18 @@
+.{
+    .name = "YtDownloader",
+    .version = "0.0.1", // Gotta have versions now
+    .dependencies = .{
+        .imgui = .{
+            .url = "https://github.com/ocornut/imgui/archive/refs/tags/v1.89.5.tar.gz",
+            .hash = "1220662d79443d208434ffbea333a1f66f79bb2b689598bbad94d2ef8391a7e8a47a",
+        },
+        .glfw = .{
+            .url = "https://github.com/glfw/glfw/archive/refs/tags/3.3.8.tar.gz",
+            .hash = "1220881d844e85147f25d9ff83fc9ba3fefd3115b9eaec274d50140c1ae60270abf2"
+        },
+        .@"cpp-json" = .{
+            .url = "https://github.com/nlohmann/json/archive/refs/tags/v3.11.2.tar.gz",
+            .hash = "122058f1e30c5329da18e9318ab005e4b84a5fb6c613862614041b02ccbc378e40b0",
+        },
+    }
+}

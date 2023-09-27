@@ -2,6 +2,7 @@ name: ci
 on:
   pull_request:
   push:
+  workflow_call:
 
 jobs:
   x86_64-linux-build:
@@ -12,9 +13,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.12.0-dev.163+6780a6bbf
-      - name: Download dependencies
-        run: sh download.sh
+          version: 0.12.0-dev.601+f4c884617
       - name: Compile
         run: zig build -Doptimize=ReleaseFast
       - uses: actions/upload-artifact@v3

@@ -10,6 +10,7 @@ const math = std.math;
 const LazyPath = std.Build.LazyPath;
 const json = std.json;
 const ArrayList = std.ArrayList;
+const process = std.process;
 
 const cpp_source_files = .{
     "./src/main.cpp",
@@ -32,40 +33,13 @@ const JsonLanguage = struct {
 };
 
 pub fn build(b: *Build) !void {
-    const doDownloadSources = b.option(bool, "fetch-sources", "Downloads and unpacks sources (Experimental)") orelse false;
-    const doGenerateCompileCommands = b.option(bool, "generate-ccjson", "Generate compile_commands.json") orelse false;
-
-    if (doDownloadSources) {
-        try downloadSources(b);
-    }
+    // It barely works, so we're just waiting for zig to fix it
+    const doGenerateCompileCommands = b.option(bool, "generate-ccjson", "Generate compile_commands.json (experimental)") orelse false;
 
     const target = std.zig.CrossTarget.parse(.{ .arch_os_abi = "x86_64-windows-gnu" }) catch unreachable;
     const optimize = b.standardOptimizeOption(.{});
 
-    const imgui = b.addStaticLibrary(.{
-        .name = "imgui",
-        .target = target,
-        .optimize = optimize,
-    });
-    imgui.addCSourceFiles(&.{
-        "./build/imgui/imgui.cpp",
-        "./build/imgui/imgui_draw.cpp",
-        "./build/imgui/imgui_tables.cpp",
-        "./build/imgui/imgui_widgets.cpp",
-        "./build/imgui/imgui_demo.cpp",
-        "./build/imgui/misc/cpp/imgui_stdlib.cpp",
-        "./build/imgui/backends/imgui_impl_glfw.cpp",
-        "./build/imgui/backends/imgui_impl_opengl3.cpp",
-    }, &.{
-        "-std=c++11",
-        // "-g",
-    });
-    imgui.addIncludePath(LazyPath.relative("build/imgui"));
-    imgui.addIncludePath(LazyPath.relative("build/glfw/include"));
-    imgui.linkLibC();
-    imgui.linkLibCpp();
-    imgui.linkSystemLibraryName("opengl32");
-
+    const glfw_dep = b.dependency("glfw", .{});
     const glfw = b.addStaticLibrary(.{
         .name = "glfw",
         .target = target,
@@ -75,39 +49,33 @@ pub fn build(b: *Build) !void {
 
     glfw.linkLibC();
     glfw.linkSystemLibraryName("gdi32");
-
-    const glfw_pathless_sources = [_][]const u8{
-        "context.c",
-        "init.c",
-        "input.c",
-        "monitor.c",
-        "vulkan.c",
-        "window.c",
-        "win32_init.c",
-        "win32_joystick.c",
-        "win32_monitor.c",
-        "win32_time.c",
-        "win32_thread.c",
-        "win32_window.c",
-        "wgl_context.c",
-        "egl_context.c",
-        "osmesa_context.c",
-    };
-
-    var glfw_sources = std.ArrayList([]const u8).init(b.allocator);
-    defer glfw_sources.deinit();
-    for (glfw_pathless_sources) |source| {
-        errdefer for (glfw_sources.items) |s| {
-            b.allocator.free(s);
-        };
-        const path = try std.fmt.allocPrint(b.allocator, "./build/glfw/src/{s}", .{source});
-        try glfw_sources.append(path);
+    for (glfw_source_files) |file| {
+        glfw.addCSourceFile(.{
+            .file = glfw_dep.path(file),
+            .flags = &.{},
+        });
     }
-    defer for (glfw_sources.items) |source| {
-        b.allocator.free(source);
-    };
 
-    glfw.addCSourceFiles(glfw_sources.items, &.{});
+    const imgui_dep = b.dependency("imgui", .{});
+    const imgui = b.addStaticLibrary(.{
+        .name = "imgui",
+        .target = target,
+        .optimize = optimize,
+    });
+
+    for (imgui_source_files) |file| {
+        imgui.addCSourceFile(.{
+            .file = imgui_dep.path(file),
+            .flags = &.{
+                "-std=c++11",
+            },
+        });
+    }
+    imgui.addIncludePath(imgui_dep.path(""));
+    imgui.addIncludePath(glfw_dep.path("include"));
+    imgui.linkLibC();
+    imgui.linkLibCpp();
+    imgui.linkSystemLibraryName("opengl32");
 
     var compilation_args = std.ArrayList([]const u8).init(b.allocator);
     try compilation_args.appendSlice(&compiler_flags);
@@ -135,16 +103,18 @@ pub fn build(b: *Build) !void {
 
     try fillTranslationOptions(i18n_build, translation_texts.items);
 
+    const cpp_json_dep = b.dependency("cpp-json", .{});
+
     const exe = b.addExecutable(.{
         .name = "YtDownloader",
         .target = target,
         .optimize = optimize,
     });
-    exe.addIncludePath(LazyPath.relative("build/imgui"));
-    exe.addIncludePath(LazyPath.relative("build/imgui/backends"));
-    exe.addIncludePath(LazyPath.relative("build/imgui/misc/cpp"));
-    exe.addIncludePath(LazyPath.relative("build/glfw/include"));
-    exe.addSystemIncludePath(LazyPath.relative("build/cpp-json/single_include"));
+    exe.addIncludePath(imgui_dep.path(""));
+    exe.addIncludePath(imgui_dep.path("backends"));
+    exe.addIncludePath(imgui_dep.path("misc/cpp"));
+    exe.addIncludePath(glfw_dep.path("include"));
+    exe.addSystemIncludePath(cpp_json_dep.path("single_include"));
     exe.linkLibC();
     exe.linkLibCpp();
     exe.linkSystemLibraryName("ole32");
@@ -195,88 +165,6 @@ pub fn build(b: *Build) !void {
     run_step.dependOn(&run_cmd.step);
 }
 
-fn downloadSources(b: *std.build.Builder) !void {
-    const Download = struct {
-        name: []const u8,
-        url: []const u8,
-    };
-
-    const sources = [_]Download{
-        .{ .name = "imgui", .url = "http://github.com/ocornut/imgui/archive/refs/tags/v1.89.5.tar.gz" },
-        .{ .name = "glfw", .url = "http://github.com/glfw/glfw/archive/refs/tags/3.3.8.tar.gz" },
-        .{ .name = "cpp-json", .url = "http://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz" },
-    };
-
-    const build_dir_path = b.pathFromRoot("build");
-
-    if (fs.accessAbsolute(build_dir_path, .{})) |_| {
-        return;
-    } else |_| {
-        try fs.makeDirAbsolute(build_dir_path);
-    }
-    const build_dir = try fs.openDirAbsolute(build_dir_path, .{});
-
-    var client = std.http.Client{
-        .allocator = b.allocator,
-    };
-    defer client.deinit();
-
-    for (sources) |source| {
-        const output_dir_name = source.name;
-        const url = source.url;
-
-        const output_dir = build_dir.makeOpenPath(output_dir_name, .{}) catch |err| {
-            if (err == error.PathAlreadyExists) {
-                continue;
-            }
-
-            return err;
-        };
-
-        const uri = try std.Uri.parse(url);
-
-        var headers = std.http.Headers.init(b.allocator);
-        defer headers.deinit();
-
-        var request = try client.request(.GET, uri, headers, .{});
-        defer request.deinit();
-
-        try request.start();
-
-        std.debug.print("Downloading {s}\n", .{output_dir_name});
-
-        try request.wait();
-        var req_reader = request.reader();
-        const req_data = try req_reader.readAllAlloc(b.allocator, math.maxInt(usize));
-        defer b.allocator.free(req_data);
-
-        var req_data_stream = io.fixedBufferStream(req_data);
-
-        const decompressed_data = x: {
-            if (mem.endsWith(u8, url, ".gz")) {
-                var decompress = try compress.gzip.decompress(b.allocator, req_data_stream.reader());
-                defer decompress.deinit();
-                const data = try decompress.reader().readAllAlloc(b.allocator, std.math.maxInt(usize));
-                break :x data;
-            }
-
-            if (mem.endsWith(u8, url, ".xz")) {
-                var decompress = try compress.xz.decompress(b.allocator, req_data_stream.reader());
-                defer decompress.deinit();
-                const data = try decompress.reader().readAllAlloc(b.allocator, std.math.maxInt(usize));
-                break :x data;
-            }
-
-            return error.UnexpectedFilenameExtension;
-        };
-        defer b.allocator.free(decompressed_data);
-
-        var stream = io.fixedBufferStream(decompressed_data);
-
-        try std.tar.pipeToFileSystem(output_dir, stream.reader(), .{ .strip_components = 1 });
-    }
-}
-
 const CompilationDatabaseStep = struct {
     step: Step,
     cached: bool,
@@ -323,7 +211,7 @@ const CompilationDatabaseStep = struct {
         return allocated;
     }
 
-    fn addCompileStepToManifest(manifest: *Manifest, exe: *Step.Compile, b: *std.Build) !void {
+    fn addCompileStepToManifest(manifest: *Manifest, exe: *Step.Compile, b: *Build) !void {
         // FIXME This isn't nearly enough to consistently cache files,
         //       for example, compiler flags aren't cached.
 
@@ -384,6 +272,11 @@ const CompilationDatabaseStep = struct {
             return;
         }
 
+        fs.makeDirAbsolute(step.owner.pathFromRoot("build")) catch |err| {
+            if (err != error.PathAlreadyExists) {
+                return err;
+            }
+        };
         const cfjson_file = try fs.createFileAbsolute(cfjson_path, .{});
         defer cfjson_file.close();
 
@@ -423,7 +316,7 @@ const CompilationDatabaseStep = struct {
     }
 };
 
-fn getTranslationTexts(b: *std.Build) !std.ArrayList([]const u8) {
+fn getTranslationTexts(b: *Build) !std.ArrayList([]const u8) {
     var translation = try b.build_root.handle.openIterableDir("translation", .{});
     var walker = try translation.walk(b.allocator);
     defer walker.deinit();
@@ -457,7 +350,7 @@ fn getTranslationTexts(b: *std.Build) !std.ArrayList([]const u8) {
     return texts;
 }
 
-fn fillTranslationOptions(options: *std.Build.Step.Options, translation_texts: []const []const u8) !void {
+fn fillTranslationOptions(options: *Build.Step.Options, translation_texts: []const []const u8) !void {
     const b = options.step.owner;
     const allocator = b.allocator;
 
@@ -490,3 +383,32 @@ fn fillTranslationOptions(options: *std.Build.Step.Options, translation_texts: [
     options.addOption([]const []const u8, "langs", langs.items);
     options.addOption([]const []const u8, "formalnames", formalnames.items);
 }
+
+const imgui_source_files = [_][]const u8{
+    "imgui.cpp",
+    "imgui_draw.cpp",
+    "imgui_tables.cpp",
+    "imgui_widgets.cpp",
+    "imgui_demo.cpp",
+    "misc/cpp/imgui_stdlib.cpp",
+    "backends/imgui_impl_glfw.cpp",
+    "backends/imgui_impl_opengl3.cpp",
+};
+
+const glfw_source_files = [_][]const u8{
+    "src/context.c",
+    "src/init.c",
+    "src/input.c",
+    "src/monitor.c",
+    "src/vulkan.c",
+    "src/window.c",
+    "src/win32_init.c",
+    "src/win32_joystick.c",
+    "src/win32_monitor.c",
+    "src/win32_time.c",
+    "src/win32_thread.c",
+    "src/win32_window.c",
+    "src/wgl_context.c",
+    "src/egl_context.c",
+    "src/osmesa_context.c",
+};
