@@ -23,16 +23,8 @@ Compilation was made specifically for Linux, you may have to change it
 to compile on different operating systems or architectures.
 
 ## Dependencies
-There are a few dependencies and there are three ways to download them:
-- Manually
-- Using the convenient download.sh posix script, which uses curl or wget
-to fetch the sources and tar to decompress them (GNU tar specifically, but
-it should work with most other implementations, with busybox being an outlier
-and possibly not working).
-- Built directly into `build.zig`, but that way is unstable
-and may result in panics and a corrupted download, use with caution.
-
-After obtaining dependencies, simply running `zig build` should be enough to build.
+Dependencies are automatically downloaded and compiled by `build.zig`.
+This is why you need a very recent (at the time of writing) master-branch version of Zig.
 
 # Packaging
 The program needs a few things at runtime in the same directory as it's located,
