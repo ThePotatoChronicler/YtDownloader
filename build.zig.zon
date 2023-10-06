@@ -8,7 +8,7 @@
         },
         .glfw = .{
             .url = "https://github.com/glfw/glfw/archive/refs/tags/3.3.8.tar.gz",
-            .hash = "1220881d844e85147f25d9ff83fc9ba3fefd3115b9eaec274d50140c1ae60270abf2"
+            .hash = "1220881d844e85147f25d9ff83fc9ba3fefd3115b9eaec274d50140c1ae60270abf2",
         },
         .@"cpp-json" = .{
             .url = "https://github.com/nlohmann/json/archive/refs/tags/v3.11.2.tar.gz",

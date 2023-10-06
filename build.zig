@@ -239,11 +239,16 @@ const CompilationDatabaseStep = struct {
                     manifest.hash.addBytes(p.getPath(b));
                 },
                 .other_step => |s| {
-                    manifest.hash.add(@as(u32, 0x7289f95c));
+                    manifest.hash.add(@as(u32, 0x343f7121));
                     try addCompileStepToManifest(manifest, s, b);
+                    manifest.hash.add(@as(u32, 0x7e56bbd1));
                 },
                 .config_header_step => |_| {
                     @panic("Unimplemented");
+                },
+                .path_after => |p| {
+                    manifest.hash.add(@as(u32, 0x097c4d6b));
+                    manifest.hash.addBytes(p.getPath(b));
                 },
             }
         }
