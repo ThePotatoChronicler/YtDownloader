@@ -14,5 +14,8 @@
             .url = "https://github.com/nlohmann/json/archive/refs/tags/v3.11.2.tar.gz",
             .hash = "122058f1e30c5329da18e9318ab005e4b84a5fb6c613862614041b02ccbc378e40b0",
         },
+    },
+    .paths = .{
+        "",
     }
 }
