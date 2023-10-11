@@ -13,7 +13,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.12.0-dev.866+3a47bc715
+          version: 0.12.0-dev.878+7abf9b3a8
       - name: Compile
         run: zig build -Doptimize=ReleaseFast
       - uses: actions/upload-artifact@v3

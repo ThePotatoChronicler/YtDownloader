@@ -150,7 +150,10 @@ pub fn build(b: *Build) !void {
         }
     }
 
-    exe.addCSourceFiles(&cpp_source_files, compilation_args.items);
+    exe.addCSourceFiles(.{
+        .files = &cpp_source_files,
+        .flags = compilation_args.items,
+    });
 
     const install_artifact = b.installArtifact(exe);
     _ = install_artifact;
