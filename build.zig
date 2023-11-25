@@ -291,7 +291,7 @@ const CompilationDatabaseStep = struct {
         const json_writer = cfjson_file.writer();
         try json_writer.writeByte('[');
 
-        var cdb_dir = fs.openIterableDirAbsolute(self.cdb_dir_path, .{}) catch |err| {
+        var cdb_dir = fs.openDirAbsolute(self.cdb_dir_path, .{ .iterate = true }) catch |err| {
             return step.fail("Cannot open CDB directory '{s}': {s}", .{ self.cdb_dir_path, @errorName(err) });
         };
         defer cdb_dir.close();
@@ -311,7 +311,7 @@ const CompilationDatabaseStep = struct {
                 try json_writer.writeByte(',');
             }
 
-            const file = try cdb_dir.dir.openFile(entry.name, .{});
+            const file = try cdb_dir.openFile(entry.name, .{});
             const file_content = try file.readToEndAlloc(step.owner.allocator, math.maxInt(usize));
             defer step.owner.allocator.free(file_content);
 
@@ -325,7 +325,7 @@ const CompilationDatabaseStep = struct {
 };
 
 fn getTranslationTexts(b: *Build) !std.ArrayList([]const u8) {
-    var translation = try b.build_root.handle.openIterableDir("translation", .{});
+    var translation = try b.build_root.handle.openDir("translation", .{ .iterate = true });
     var walker = try translation.walk(b.allocator);
     defer walker.deinit();
 
@@ -351,7 +351,7 @@ fn getTranslationTexts(b: *Build) !std.ArrayList([]const u8) {
         var file = try entry.dir.openFile(entry.basename, .{});
         defer file.close();
 
-        var jsontext = try file.readToEndAlloc(b.allocator, math.pow(usize, 2, 16));
+        const jsontext = try file.readToEndAlloc(b.allocator, math.pow(usize, 2, 16));
         try texts.append(jsontext);
     }
 

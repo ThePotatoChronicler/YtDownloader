@@ -36,8 +36,8 @@ const error_default = "!NULL!";
 export fn YD_init_translations() c_int {
     inline for (languages, 0..) |lang, i| {
         var map = std.StringHashMap([]const u8).init(heap.c_allocator);
-        var keys: []const []const u8 = @field(i18n_build, "phrases_" ++ lang.name ++ "_keys");
-        var vals: []const []const u8 = @field(i18n_build, "phrases_" ++ lang.name ++ "_vals");
+        const keys: []const []const u8 = @field(i18n_build, "phrases_" ++ lang.name ++ "_keys");
+        const vals: []const []const u8 = @field(i18n_build, "phrases_" ++ lang.name ++ "_vals");
 
         for (keys, vals) |k, v| {
             map.put(k, v) catch return -1;
