@@ -2,7 +2,9 @@ name: ci
 on:
   pull_request:
   push:
-  workflow_call:
+
+permissions:
+  contents: write
 
 jobs:
   x86_64-linux-build:
@@ -13,7 +15,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.12.0-dev.1726+8b1097083
+          version: 0.12.0-dev.1828+225fe6ddb
       - name: Compile
         run: zig build -Doptimize=ReleaseFast
       - uses: actions/upload-artifact@v3
@@ -22,3 +24,41 @@ jobs:
           path: |
             zig-out
           if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: x86_64-linux-build
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: zig-out
+      - name: Download licenses
+        run: |
+          mkdir licenses
+          cd licenses
+          curl -L --no-progress-meter \
+            -o yt-dlp.txt https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/LICENSE \
+            -o imgui.txt https://raw.githubusercontent.com/ocornut/imgui/master/LICENSE.txt \
+            -o nlohmann-json.txt https://raw.githubusercontent.com/nlohmann/json/develop/LICENSE.MIT \
+            -o glfw.md https://raw.githubusercontent.com/glfw/glfw/master/LICENSE.md
+      - name: Download yt-dlp.exe
+        run: |
+          curl -L --no-progress-meter \
+            -o yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/download/2023.11.16/yt-dlp.exe
+      - name: Download Iosevka
+        run: |
+          curl -L --no-progress-meter \
+            -o iosevka.zip https://github.com/be5invis/Iosevka/releases/download/v27.3.5/ttf-iosevka-27.3.5.zip
+          unzip iosevka.zip iosevka-regular.ttf
+          mv iosevka-regular.ttf font.ttf
+      - name: Zip up all files
+        run: |
+          mv bin/YtDownloader.exe .
+          zip -r -9 YtDownloader.zip licenses font.ttf yt-dlp.exe YtDownloader.exe
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            YtDownloader.zip
