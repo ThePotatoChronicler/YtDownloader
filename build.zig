@@ -1,6 +1,6 @@
 const std = @import("std");
 const Build = std.Build;
-const Step = std.build.Step;
+const Step = Build.Step;
 const Manifest = Build.Cache.Manifest;
 const fs = std.fs;
 const mem = std.mem;
@@ -36,7 +36,9 @@ pub fn build(b: *Build) !void {
     // It barely works, so we're just waiting for zig to fix it
     const doGenerateCompileCommands = b.option(bool, "generate-ccjson", "Generate compile_commands.json (experimental)") orelse false;
 
-    const target = std.zig.CrossTarget.parse(.{ .arch_os_abi = "x86_64-windows-gnu" }) catch unreachable;
+    const target_query = std.zig.CrossTarget.parse(.{ .arch_os_abi = "x86_64-windows-gnu" }) catch unreachable;
+    const target = b.resolveTargetQuery(target_query);
+
     const optimize = b.standardOptimizeOption(.{});
 
     const glfw_dep = b.dependency("glfw", .{});
@@ -48,7 +50,7 @@ pub fn build(b: *Build) !void {
     glfw.defineCMacro("_GLFW_WIN32", null);
 
     glfw.linkLibC();
-    glfw.linkSystemLibraryName("gdi32");
+    glfw.linkSystemLibrary("gdi32");
     for (glfw_source_files) |file| {
         glfw.addCSourceFile(.{
             .file = glfw_dep.path(file),
@@ -75,7 +77,7 @@ pub fn build(b: *Build) !void {
     imgui.addIncludePath(glfw_dep.path("include"));
     imgui.linkLibC();
     imgui.linkLibCpp();
-    imgui.linkSystemLibraryName("opengl32");
+    imgui.linkSystemLibrary("opengl32");
 
     var compilation_args = std.ArrayList([]const u8).init(b.allocator);
     try compilation_args.appendSlice(&compiler_flags);
@@ -91,7 +93,9 @@ pub fn build(b: *Build) !void {
     i18n.addIncludePath(LazyPath.relative("src"));
 
     const i18n_build = b.addOptions();
-    i18n.addOptions("i18n_build", i18n_build);
+    // i18n.addOptions("i18n_build", i18n_build);
+
+    i18n.root_module.addOptions("i18n_build", i18n_build);
 
     const translation_texts = try getTranslationTexts(b);
     defer {
@@ -117,10 +121,9 @@ pub fn build(b: *Build) !void {
     exe.addSystemIncludePath(cpp_json_dep.path("single_include"));
     exe.linkLibC();
     exe.linkLibCpp();
-    exe.linkSystemLibraryName("ole32");
-    exe.linkSystemLibraryName("winhttp");
-    exe.linkSystemLibraryName("shlwapi");
-    exe.linkSystemLibraryName("api-ms-win-core-path-l1-1-0");
+    exe.linkSystemLibrary("ole32");
+    exe.linkSystemLibrary("winhttp");
+    exe.linkSystemLibrary("shlwapi");
     exe.defineCMacro("INITGUID", null);
 
     if (optimize == .Debug) {
@@ -218,12 +221,12 @@ const CompilationDatabaseStep = struct {
         // FIXME This isn't nearly enough to consistently cache files,
         //       for example, compiler flags aren't cached.
 
-        for (exe.c_macros.items) |macro| {
+        for (exe.root_module.c_macros.items) |macro| {
             manifest.hash.add(@as(u32, 0x92197e58));
             manifest.hash.addBytes(macro);
         }
 
-        for (exe.include_dirs.items) |incl_dir| {
+        for (exe.root_module.include_dirs.items) |incl_dir| {
             switch (incl_dir) {
                 .path => |p| {
                     manifest.hash.add(@as(u32, 0x4dfe76cb));

@@ -8,6 +8,7 @@
 #include <locale.h>
 #include <locale>
 #include <minwinbase.h>
+#include <minwindef.h>
 #include <optional>
 #include <processthreadsapi.h>
 #include <sstream>
@@ -85,7 +86,7 @@ UniqueWinHTTPINTERNET internet;
 bool waiting_for_savepath = false;
 std::future<std::optional<std::wstring>> filebrowser_for_savepath;
 
-INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow) {
+int main() {
     if (YD_init_translations()) {        
         MessageBox(NULL, "Could not load translations", NULL, MB_ICONERROR);
         return 1;
@@ -104,28 +105,31 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     exec_path = get_exec_path();
     desktop_path = get_user_desktop_path();
 
+    // TODO: Handle errors returned from all these functions, and possibly extract
+    // the logic into a separate function, since it repeats
     execdir_path = exec_path;
-    PathCchRemoveFileSpec(execdir_path.data(), execdir_path.length());
+    execdir_path.resize(MAX_PATH);
+    PathRemoveFileSpecW(execdir_path.data());
     execdir_path.resize(wcslen(execdir_path.c_str()));
 
     config_path = execdir_path;
     config_path.resize(MAX_PATH);
-    PathCchAppend(config_path.data(), MAX_PATH, config_filename.c_str());
+    PathAppendW(config_path.data(), config_filename.c_str());
     config_path.resize(wcslen(config_path.c_str()));
 
     font_path = execdir_path;
     font_path.resize(MAX_PATH);
-    PathCchAppend(font_path.data(), MAX_PATH, L"font.ttf");
+    PathAppendW(font_path.data(), L"font.ttf");
     font_path.resize(wcslen(font_path.c_str()));
 
     ytdlp_path = execdir_path;
     ytdlp_path.resize(MAX_PATH);
-    PathCchAppend(ytdlp_path.data(), MAX_PATH, L"yt-dlp.exe");
+    PathAppendW(ytdlp_path.data(), L"yt-dlp.exe");
     ytdlp_path.resize(wcslen(ytdlp_path.c_str()));
 
     imgui_ini_path = execdir_path;
     imgui_ini_path.resize(MAX_PATH);
-    PathCchAppend(imgui_ini_path.data(), MAX_PATH, L"imgui.ini");
+    PathAppendW(imgui_ini_path.data(), L"imgui.ini");
     imgui_ini_path.resize(wcslen(imgui_ini_path.c_str()));
 
     {
