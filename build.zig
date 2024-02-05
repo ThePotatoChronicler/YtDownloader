@@ -181,7 +181,7 @@ const CompilationDatabaseStep = struct {
     const Self = @This();
 
     pub fn initAlloc(b: *Build, exe: *Step.Compile, source_files: []const []const u8, comp_flags: []const []const u8) !*Self {
-        var manifest = b.cache.obtain();
+        var manifest = b.graph.cache.obtain();
 
         // FIXME: This isn't nearly enough to consistently cache builds, we need
         //        to also cache the dependencies and their flags and includes
