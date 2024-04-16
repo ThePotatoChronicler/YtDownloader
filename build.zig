@@ -86,11 +86,11 @@ pub fn build(b: *Build) !void {
         .name = "i18n",
         .target = target,
         .optimize = optimize,
-        .root_source_file = LazyPath.relative("src/i18n.zig"),
+        .root_source_file = b.path("src/i18n.zig"),
     });
 
     i18n.linkLibC();
-    i18n.addIncludePath(LazyPath.relative("src"));
+    i18n.addIncludePath(b.path("src"));
 
     const i18n_build = b.addOptions();
     // i18n.addOptions("i18n_build", i18n_build);
@@ -130,10 +130,7 @@ pub fn build(b: *Build) !void {
         exe.defineCMacro("JSON_DIAGNOSTICS", null);
     }
 
-    // Temporary fix, since LTO is deleting _create_locale, needed by cpp-json
-    exe.want_lto = false;
-
-    exe.addIncludePath(LazyPath.relative("src"));
+    exe.addIncludePath(b.path("src"));
 
     exe.linkLibrary(imgui);
     exe.linkLibrary(glfw);
@@ -263,7 +260,7 @@ const CompilationDatabaseStep = struct {
     fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         _ = prog_node;
 
-        const self = @fieldParentPtr(Self, "step", step);
+        const self: *Self = @fieldParentPtr("step", step);
         defer self.manifest.deinit();
 
         const cfjson_path = step.owner.pathFromRoot("build/compile_commands.json");

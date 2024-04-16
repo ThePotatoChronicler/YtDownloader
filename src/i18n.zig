@@ -108,11 +108,14 @@ fn eqlZigstrToCstr(zigstr: []const u8, cstr: [*c]const u8) bool {
     }
 }
 
-export const YD_languages_list: [*c][*c]const u8 = &blk: {
+var YD_languages_list_buffer = blk: {
     var buf: [languages.len][*c]const u8 = undefined;
     for (&buf, languages) |*l, lang| {
         l.* = lang.name.ptr;
     }
     break :blk buf;
 };
+
+export const YD_languages_list: [*c][*c]const u8 = @ptrCast(&YD_languages_list_buffer);
+
 export const YD_languages_list_len: c_int = languages.len;

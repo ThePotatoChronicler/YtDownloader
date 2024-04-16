@@ -1,17 +1,14 @@
 #include <cstddef>
 #include <errhandlingapi.h>
-#include <exception>
 #include <excpt.h>
 #include <fstream>
 #include <ios>
 #include <iterator>
 #include <locale.h>
-#include <locale>
 #include <minwinbase.h>
 #include <minwindef.h>
 #include <optional>
 #include <processthreadsapi.h>
-#include <sstream>
 #include <stdio.h>
 #include "imgui.h"
 #include "imgui_stdlib.h"
@@ -27,7 +24,6 @@
 #include <pathcch.h>
 #include <nlohmann/json.hpp>
 #include <string>
-#include <codecvt>
 #include <iostream>
 #include <winerror.h>
 #include <winnt.h>
