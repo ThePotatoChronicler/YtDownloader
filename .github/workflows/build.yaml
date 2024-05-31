@@ -42,7 +42,8 @@ jobs:
             -o yt-dlp.txt https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/LICENSE \
             -o imgui.txt https://raw.githubusercontent.com/ocornut/imgui/master/LICENSE.txt \
             -o nlohmann-json.txt https://raw.githubusercontent.com/nlohmann/json/develop/LICENSE.MIT \
-            -o glfw.md https://raw.githubusercontent.com/glfw/glfw/master/LICENSE.md
+            -o glfw.md https://raw.githubusercontent.com/glfw/glfw/master/LICENSE.md \
+            -o iosevka.md https://raw.githubusercontent.com/be5invis/Iosevka/main/LICENSE.md
       - name: Download yt-dlp.exe
         run: |
           curl -L --no-progress-meter \
