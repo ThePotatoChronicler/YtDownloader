@@ -257,10 +257,10 @@ const CompilationDatabaseStep = struct {
         }
     }
 
-    fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    fn make(step: *Step, prog_node: std.Progress.Node) !void {
         _ = prog_node;
 
-        const self: *Self = @fieldParentPtr("step", step);
+        const self: *Self = @alignCast(@fieldParentPtr("step", step));
         defer self.manifest.deinit();
 
         const cfjson_path = step.owner.pathFromRoot("build/compile_commands.json");
