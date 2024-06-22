@@ -13,7 +13,7 @@ to spend an extended amount of time on this, feel free to fork it in that case
 and work on this yourself, if you're inclined to do so.
 
 # Zig version
-Currently tested and built using: `0.13.0-dev.347+30a35a897`
+Currently tested and built using: `0.14.0-dev.112+9be9b8ca9`
 
 # Using clangd for completions
 You can create compile_commands.json while building using -Dgenerate-ccjson=true flag.

@@ -36,7 +36,7 @@ pub fn build(b: *Build) !void {
     // It barely works, so we're just waiting for zig to fix it
     const doGenerateCompileCommands = b.option(bool, "generate-ccjson", "Generate compile_commands.json (experimental)") orelse false;
 
-    const target_query = std.zig.CrossTarget.parse(.{ .arch_os_abi = "x86_64-windows-gnu" }) catch unreachable;
+    const target_query = std.Target.Query.parse(.{ .arch_os_abi = "x86_64-windows-gnu" }) catch unreachable;
     const target = b.resolveTargetQuery(target_query);
 
     const optimize = b.standardOptimizeOption(.{});
