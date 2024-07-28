@@ -15,7 +15,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.14.0-dev.112+9be9b8ca9
+          version: 0.14.0-dev.622+a84951465
       - name: Compile
         run: zig build -Doptimize=ReleaseFast
       - uses: actions/upload-artifact@v3
@@ -47,7 +47,7 @@ jobs:
       - name: Download yt-dlp.exe
         run: |
           curl -L --no-progress-meter \
-            -o yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/download/2023.11.16/yt-dlp.exe
+            -o yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/download/2024.07.25/yt-dlp.exe
       - name: Download Iosevka
         run: |
           curl -L --no-progress-meter \

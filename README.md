@@ -13,7 +13,7 @@ to spend an extended amount of time on this, feel free to fork it in that case
 and work on this yourself, if you're inclined to do so.
 
 # Zig version
-Currently tested and built using: `0.14.0-dev.112+9be9b8ca9`
+Currently tested and built using: `0.14.0-dev.622+a84951465`
 
 # Using clangd for completions
 You can create compile_commands.json while building using -Dgenerate-ccjson=true flag.
@@ -34,7 +34,7 @@ You also probably want to include the licenses of imgui, gltf, cpp-json and yt-d
 
 ## yt-dlp.exe
 Obtain `yt-dlp.exe` from its [github](https://github.com/yt-dlp/yt-dlp).
-I specifically tested it with release `2023.11.16`.
+I specifically tested it with release `2024.07.25`.
 The executable name must be **exact**.
 
 ## font.ttf

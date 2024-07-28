@@ -257,8 +257,10 @@ const CompilationDatabaseStep = struct {
         }
     }
 
-    fn make(step: *Step, prog_node: std.Progress.Node) !void {
-        _ = prog_node;
+    fn make(step: *Step, make_opts: Build.Step.MakeOptions) !void {
+        if (make_opts.watch) {
+            // TODO: Add warning or error that watch is unsupported
+        }
 
         const self: *Self = @alignCast(@fieldParentPtr("step", step));
         defer self.manifest.deinit();
